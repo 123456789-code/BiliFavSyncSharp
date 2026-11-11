@@ -9,6 +9,7 @@ internal sealed class AppSettings {
 	public bool StayInTray { get; set; }
 	public bool ShowReminder { get; set; } = true;
 	public bool AutomaticSync { get; set; }
+	public string ProtectedLogin { get; set; } = "";
 	public string ProtectedSession { get; set; } = "";
 	public long UserId { get; set; }
 	public string StorageRoot { get; set; } = "";

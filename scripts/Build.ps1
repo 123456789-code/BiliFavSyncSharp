@@ -26,7 +26,7 @@ try {
 		[Environment]::SetEnvironmentVariable($name, $build_env[$name])
 	}
 	$project = Join-Path $project_path 'BiliFavSyncSharp.csproj'
-	& dotnet restore $project --configfile (Join-Path $PSScriptRoot 'Offline.config') --disable-build-servers
+	& dotnet restore $project --configfile (Join-Path $PSScriptRoot 'Offline.config') --source 'https://api.nuget.org/v3/index.json' --disable-build-servers
 	if ($LASTEXITCODE -ne 0) { throw "还原失败 ($LASTEXITCODE)" }
 	& dotnet build $project -c $Configuration --no-restore --disable-build-servers
 	if ($LASTEXITCODE -ne 0) { throw "编译失败 ($LASTEXITCODE)" }

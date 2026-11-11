@@ -1,9 +1,18 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace BiliFavSyncSharp;
 
 internal static class SessionProtection {
+	public static string ProtectLogin(LoginSession account) {
+		return Protect(JsonSerializer.Serialize(account));
+	}
+
+	public static LoginSession RestoreLogin(string value) {
+		return JsonSerializer.Deserialize<LoginSession>(Restore(value)) ?? throw new InvalidDataException("无法读取扫码登录状态。");
+	}
+
 	public static string Protect(string value) {
 		if (value.Length == 0)
 			return "";

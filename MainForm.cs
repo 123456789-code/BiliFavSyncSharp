@@ -7,6 +7,7 @@ internal sealed class MainForm : Form {
 	private bool Exiting;
 	private bool Editing;
 	private bool UpdatingSwitch;
+	private LoginSession? Account;
 	private string Session = "";
 	private CancellationTokenSource? Active;
 	private bool ClosePending;
@@ -23,7 +24,10 @@ internal sealed class MainForm : Form {
 
 	public MainForm(AppSettings? settings = null, bool start_hidden = false) {
 		Settings = settings ?? new();
-		try { Session = SessionProtection.Restore(Settings.ProtectedSession); }
+		try {
+			Account = Settings.ProtectedLogin.Length == 0 ? null : SessionProtection.RestoreLogin(Settings.ProtectedLogin);
+			Session = Account?.Session ?? SessionProtection.Restore(Settings.ProtectedSession);
+		}
 		catch (Exception) { Status.Text = "登录凭据无法解密，请重新填写 SESSDATA。"; }
 		UiTheme.Apply(this);
 		Text = "BiliFavSyncSharp";
@@ -165,7 +169,7 @@ internal sealed class MainForm : Form {
 
 	private bool EditSettings() {
 		Editing = true;
-		using var dialog = new SettingsDialog(Settings, Session);
+		using var dialog = new SettingsDialog(Settings, Session, Account);
 		try {
 			if (dialog.ShowDialog(this) != DialogResult.OK)
 				return false;
@@ -173,6 +177,7 @@ internal sealed class MainForm : Form {
 		finally { Editing = false; }
 		Settings = dialog.Settings;
 		Session = dialog.Credential;
+		Account = dialog.Account;
 		Reminder.Visible = Settings.ShowReminder;
 		TrayIcon.Visible = Settings.StayInTray;
 		RefreshLibrary();
@@ -195,6 +200,20 @@ internal sealed class MainForm : Form {
 		catch (Exception exception) {
 			Summary.Text = $"读取视频库失败 · {exception.Message}";
 		}
+	}
+
+	private void SaveLogin(LoginSession account) {
+		if (Settings.ProtectedLogin.Length > 0) {
+			string previous = Settings.ProtectedLogin;
+			Settings.ProtectedLogin = SessionProtection.ProtectLogin(account);
+			try { AppStore.Save(AppStore.SettingsPath, Settings); }
+			catch {
+				Settings.ProtectedLogin = previous;
+				throw;
+			}
+		}
+		Account = account;
+		Session = account.Session;
 	}
 
 	private bool Ready(bool rebuild) {
@@ -225,6 +244,10 @@ internal sealed class MainForm : Form {
 			Log.TopIndex = Log.Items.Count - 1;
 		});
 		try {
+			if (!rebuild && Account is not null) {
+				using var passport = new PassportClient();
+				await passport.MaintainAsync(Account, SaveLogin, cancellation.Token);
+			}
 			await Task.Run(async () => {
 				using var writer = new StreamWriter(Path.Combine(AppStore.DataDirectory, "latest.log"), false) { AutoFlush = true };
 				void Report(string message) {

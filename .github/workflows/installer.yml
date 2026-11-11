@@ -29,6 +29,8 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
+      - name: Test QR login and session renewal
+        run: dotnet run --project tests/PassportChecks/PassportChecks.csproj -c Release
       - name: Build Chinese x64 installer
         id: package
         run: |

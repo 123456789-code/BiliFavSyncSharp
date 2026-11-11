@@ -44,6 +44,7 @@ try {
 	$licenses = Join-Path $payload 'licenses'
 	[void][IO.Directory]::CreateDirectory($licenses)
 	Copy-Item -LiteralPath (Join-Path $project_root 'installer\HardLinkAutoBackup-LICENSE.txt') -Destination $licenses
+	Copy-Item -LiteralPath (Join-Path $project_root 'installer\QRCoder-LICENSE.txt') -Destination $licenses
 	$config = Get-Content -Raw -LiteralPath (Join-Path $payload 'BiliFavSyncSharp.runtimeconfig.json') | ConvertFrom-Json
 	if (!$config.runtimeOptions.includedFrameworks) { throw '运行时配置未包含自包含框架。' }
 	foreach ($framework in $config.runtimeOptions.includedFrameworks) {

@@ -9,15 +9,17 @@ internal sealed class SettingsDialog : Form {
 	private readonly CheckBox Elevated = new() { Text = "以管理员权限启动（下次启动生效）", AutoSize = true };
 	private readonly CheckBox Tray = new() { Text = "关闭窗口后在托盘继续运行", AutoSize = true };
 	private readonly CheckBox Reminder = new() { Text = "显示主窗口使用提醒", AutoSize = true };
-	private readonly CheckBox Remember = new() { Text = "在本机记住 SESSDATA（当前 Windows 用户加密）", AutoSize = true };
+	private readonly CheckBox Remember = new() { Text = "记住登录状态（当前 Windows 用户加密）", AutoSize = true };
 	private bool RepairRequested;
 	private bool Saving;
 
+	public LoginSession? Account { get; private set; }
 	public AppSettings Settings { get; private set; }
 	public string Credential => Session.Text.Trim();
 
-	public SettingsDialog(AppSettings settings, string session) {
+	public SettingsDialog(AppSettings settings, string session, LoginSession? account = null) {
 		Settings = settings;
+		Account = account;
 		UiTheme.Apply(this);
 		Text = "程序设置";
 		StartPosition = FormStartPosition.CenterParent;
@@ -45,7 +47,18 @@ internal sealed class SettingsDialog : Form {
 		Elevated.Checked = settings.RunAsAdministrator;
 		Tray.Checked = settings.StayInTray;
 		Reminder.Checked = settings.ShowReminder;
-		Remember.Checked = settings.ProtectedSession.Length > 0;
+		Remember.Checked = settings.ProtectedSession.Length > 0 || settings.ProtectedLogin.Length > 0;
+		Session.TextChanged += (_, _) => Account = null;
+		grid.Controls.Add(UiTheme.Button("扫码登录", (_, _) => {
+			using var dialog = new QrLoginDialog();
+			if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Account is not LoginSession login)
+				return;
+			bool use_login_uid = Uid.Text.Trim().Length == 0 || Uid.Text.Trim() == Account?.Uid.ToString();
+			Session.Text = login.Session;
+			Account = login;
+			if (use_login_uid)
+				Uid.Text = login.Uid.ToString();
+		}), 2, 1);
 		var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White, Padding = new Padding(12) };
 		options.Controls.AddRange([Remember, Startup, Elevated, Tray, Reminder]);
 		var maintenance = new FlowLayoutPanel { AutoSize = true };
@@ -108,7 +121,8 @@ internal sealed class SettingsDialog : Form {
 				StayInTray = Tray.Checked,
 				ShowReminder = Reminder.Checked,
 				AutomaticSync = Settings.AutomaticSync,
-				ProtectedSession = Remember.Checked ? SessionProtection.Protect(Credential) : ""
+				ProtectedSession = Remember.Checked && Account is null ? SessionProtection.Protect(Credential) : "",
+				ProtectedLogin = Remember.Checked && Account is not null ? SessionProtection.ProtectLogin(Account) : ""
 			};
 			if (update_task) {
 				await StartupActions.ConfigureAsync(updated.StartAtLogon, updated.RunAsAdministrator);
