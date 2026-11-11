@@ -5,12 +5,20 @@ on:
     branches: [main, master]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: '验证通过后发布当前版本'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   installer:
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      installer_sha256: ${{ steps.package.outputs.installer_sha256 }}
     runs-on: windows-2025
     timeout-minutes: 25
     defaults:
@@ -24,11 +32,16 @@ jobs:
       - name: Build Chinese x64 installer
         id: package
         run: |
+          $version = ([xml](Get-Content -LiteralPath BiliFavSyncSharp.csproj -Raw)).Project.PropertyGroup.Version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw '请使用三段式版本号。' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw '标签与项目版本不一致。' }
+          "version=$version" >> $env:GITHUB_OUTPUT
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (!(Test-Path -LiteralPath $compiler -PathType Leaf)) { throw 'Runner 缺少 Inno Setup 6。' }
           ./scripts/Publish-Release.ps1 -InstallerCompiler $compiler
           $setup = @(Get-ChildItem -Path 'artifacts/*/*-Setup-x64.exe')
           if ($setup.Count -ne 1) { throw '需要一个安装包。' }
+          "installer_sha256=$((Get-FileHash -LiteralPath $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "directory=$($setup[0].DirectoryName)" >> $env:GITHUB_OUTPUT
       - name: Verify fresh install, upgrade and uninstall
         env:
@@ -39,5 +52,49 @@ jobs:
           name: BiliFavSyncSharp-Windows-x64
           if-no-files-found: error
           path: |
-            artifacts/*/*-Setup-x64.exe
-            artifacts/*/SHA256SUMS.txt
+            ${{ steps.package.outputs.directory }}/*-Setup-x64.exe
+            ${{ steps.package.outputs.directory }}/SHA256SUMS.txt
+
+  release:
+    needs: installer
+    if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && (inputs.publish || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ needs.installer.outputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: BiliFavSyncSharp-Windows-x64
+          path: release-assets
+      - name: Verify and publish installer
+        working-directory: release-assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.installer.outputs.version }}
+          EXPECTED_DIGEST: ${{ needs.installer.outputs.installer_sha256 }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          installer="BiliFavSyncSharp-$VERSION-Setup-x64.exe"
+          test -s "$installer"
+          [[ $(sha256sum "$installer" | cut -d" " -f1) == "$EXPECTED_DIGEST" ]]
+          if gh api "repos/$GH_REPO/git/ref/tags/$tag" --silent 2>/dev/null; then
+            tagged_sha=$(gh api "repos/$GH_REPO/commits/$tag" --jq .sha)
+            [[ "$tagged_sha" == "$GITHUB_SHA" ]] || { echo "版本标签已指向其他提交，请提升项目版本。"; exit 1; }
+          fi
+          if state=$(gh release view "$tag" --json isDraft,targetCommitish 2>/dev/null); then
+            if [[ $(jq -r .isDraft <<< "$state") == false ]]; then
+              echo "此提交的版本已发布。"
+              exit 0
+            fi
+            [[ $(jq -r .targetCommitish <<< "$state") == "$GITHUB_SHA" ]] || { echo "已有其他提交的同名草稿。"; exit 1; }
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --draft --title "BiliFavSyncSharp $VERSION" --notes "Windows x64 中文安装包。"
+          fi
+          gh release upload "$tag" "$installer" --clobber
+          gh release edit "$tag" --draft=false

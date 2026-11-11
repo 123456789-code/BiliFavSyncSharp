@@ -27,3 +27,7 @@ Windows 上的 B 站收藏夹同步工具。使用 .NET 10 和 WinForms，按 BV
 ## 本地构建安装包
 
 运行 `./scripts/Publish-Release.ps1 -InstallerCompiler '你的 Inno Setup 6 安装目录\ISCC.exe'`。脚本还原 .NET 10 的 Windows x64 运行时，生成自包含的简体中文安装包和 SHA-256 清单，位于 artifacts 中。安装默认面向当前 Windows 用户，桌面快捷方式及安装后启动可在向导中勾选。下载器仍在程序设置中单独指定。
+
+## 发布到 GitHub Releases
+
+推送与项目版本一致的标签（例如 v1.1.0），或在推送到 main 的最后一条提交说明中加入 [release]。也可在 main 上手动运行 Windows installer 并勾选发布选项。工作流会在安装、升级和卸载验证通过后，直接向 Release 上传安装程序 EXE，附件的 SHA-256 可在 GitHub 上查看。发布后续版本前请更新项目文件中的 Version。
