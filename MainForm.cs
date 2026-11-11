@@ -83,7 +83,7 @@ internal sealed class MainForm : Form {
 		layout.Controls.Add(Status, 0, 5);
 		layout.Controls.Add(Reminder, 0, 6);
 		Reminder.Visible = Settings.ShowReminder;
-		TrayIcon.Icon = SystemIcons.Application;
+		TrayIcon.Icon = UiTheme.AppIcon;
 		TrayIcon.Text = "B站收藏夹同步";
 		TrayIcon.ContextMenuStrip = new ContextMenuStrip();
 		TrayIcon.ContextMenuStrip.Items.Add("显示主窗口", null, (_, _) => ShowWindow());
@@ -198,7 +198,7 @@ internal sealed class MainForm : Form {
 	}
 
 	private bool Ready(bool rebuild) {
-		return Settings.StorageRoot.Length > 0 && (rebuild || (Settings.UserId > 0 && Session.Length > 0 && File.Exists(Settings.Downloader)));
+		return Settings.StorageRoot.Length > 0 && (rebuild || (Settings.UserId > 0 && Session.Length > 0));
 	}
 
 	private async Task RunAsync(bool rebuild) {
@@ -207,7 +207,7 @@ internal sealed class MainForm : Form {
 		Timer.Stop();
 		if (!Ready(rebuild) && (!EditSettings() || !Ready(rebuild))) {
 			Hourly.Checked = false;
-			Status.Text = rebuild ? "请选择视频库目录" : "请在设置中填写 UID、SESSDATA、视频库和 BBDown 路径";
+			Status.Text = rebuild ? "请选择视频库目录" : "请在设置中填写 UID、SESSDATA 和视频库目录";
 			return;
 		}
 		using var cancellation = new CancellationTokenSource();
@@ -226,7 +226,7 @@ internal sealed class MainForm : Form {
 		});
 		try {
 			await Task.Run(async () => {
-				using var writer = new StreamWriter(Path.Combine(AppContext.BaseDirectory, "latest.log"), false) { AutoFlush = true };
+				using var writer = new StreamWriter(Path.Combine(AppStore.DataDirectory, "latest.log"), false) { AutoFlush = true };
 				void Report(string message) {
 					string line = $"{DateTime.Now:HH:mm:ss}  {message}";
 					writer.WriteLine(line);

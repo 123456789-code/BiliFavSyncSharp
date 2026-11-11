@@ -1,0 +1,9 @@
+﻿BBDown 1.6.3 (win-x64, 2024-08-14)
+Source: https://github.com/nilaoda/BBDown/tree/1.6.3
+Distribution: https://github.com/nilaoda/BBDown/releases/tag/1.6.3
+License: BBDown-LICENSE.txt
+
+FFmpeg 9.0.2 Essentials, Windows x64 build by Gyan
+Source: https://github.com/FFmpeg/FFmpeg/tree/n9.0.2
+Build information and distribution: https://github.com/GyanD/codexffmpeg/releases/tag/9.0.2
+License: FFmpeg-LICENSE.txt

@@ -4,7 +4,26 @@ using System.Text.Json.Serialization;
 namespace BiliFavSyncSharp;
 
 internal static class AppStore {
-	public static string SettingsPath => Path.Combine(AppContext.BaseDirectory, "settings.json");
+	public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BiliFavSyncSharp");
+	public static string SettingsPath => Path.Combine(DataDirectory, "settings.json");
+
+	public static AppSettings LoadSettings() {
+		Directory.CreateDirectory(DataDirectory);
+		if (File.Exists(SettingsPath))
+			return Read<AppSettings>(SettingsPath);
+		string[] previous = [
+			Path.Combine(AppContext.BaseDirectory, "settings.json"),
+			Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "BiliFavSyncSharp", "settings.json")
+		];
+		foreach (string path in previous) {
+			if (File.Exists(path)) {
+				AppSettings settings = Read<AppSettings>(path);
+				Save(SettingsPath, settings);
+				return settings;
+			}
+		}
+		return new AppSettings();
+	}
 	private static readonly JsonSerializerOptions Options = new() {
 		WriteIndented = true,
 		RespectNullableAnnotations = true,

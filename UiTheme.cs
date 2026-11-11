@@ -7,7 +7,16 @@ internal static class UiTheme {
 	public static readonly Color Muted = Color.FromArgb(99, 111, 125);
 	public static readonly Color Border = Color.FromArgb(221, 227, 234);
 
+	public static Icon AppIcon { get; } = LoadIcon();
+
+	private static Icon LoadIcon() {
+		using Stream stream = typeof(UiTheme).Assembly.GetManifestResourceStream("BiliFavSyncSharp.Assets.App.ico")!;
+		using var icon = new Icon(stream, new Size(32, 32));
+		return (Icon)icon.Clone();
+	}
+
 	public static void Apply(Form window) {
+		window.Icon = AppIcon;
 		window.AutoScaleDimensions = new SizeF(96, 96);
 		window.AutoScaleMode = AutoScaleMode.Dpi;
 		window.Font = new Font("Microsoft YaHei UI", 10);

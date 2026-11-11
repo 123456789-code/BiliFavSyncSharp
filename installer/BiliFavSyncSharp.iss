@@ -14,9 +14,11 @@ AppName=B站收藏夹同步
 AppVersion={#AppVersion}
 AppPublisher=123456789-code
 
-DefaultDirName={localappdata}\Programs\BiliFavSyncSharp
+DefaultDirName={autopf}\BiliFavSyncSharp
 DefaultGroupName=B站收藏夹同步
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
+AppMutex=Global\BiliFavSyncSharp.Running
+SetupIconFile=..\Assets\App.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19045
@@ -45,8 +47,8 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "data\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userprograms}\B站收藏夹同步"; Filename: "{app}\BiliFavSyncSharp.exe"
-Name: "{userdesktop}\B站收藏夹同步"; Filename: "{app}\BiliFavSyncSharp.exe"; Tasks: desktopicon
+Name: "{commonprograms}\B站收藏夹同步"; Filename: "{app}\BiliFavSyncSharp.exe"
+Name: "{commondesktop}\B站收藏夹同步"; Filename: "{app}\BiliFavSyncSharp.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\BiliFavSyncSharp.exe"; Description: "打开B站收藏夹同步"; Flags: nowait postinstall skipifsilent unchecked
@@ -59,8 +61,6 @@ function WriteAccessError(const path: String): String;
 begin
 	Log('BFS_WRITE_CHECK_FAILED: ' + path);
 	Result := '安装程序无法写入以下位置：' + #13#10 + path + #13#10#13#10;
-	if not IsAdmin then
-		Result := Result + '如果选择了 Program Files 等受保护目录，请关闭安装程序，右键安装包选择“以管理员身份运行”（使用同一 Windows 账户），再安装到原目录。也可返回并选择默认用户目录。' + #13#10#13#10;
 	Result := Result + '请从托盘退出旧程序，并检查上述文件是否只读或被占用。检查通过前不会开始复制程序文件；请勿跳过失败文件。';
 end;
 
@@ -114,24 +114,38 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-	result_code: Integer;
-	version_high, version_low: Cardinal;
 begin
-	Result := '';
-	if GetVersionNumbers(ExpandConstant('{app}\BiliFavSyncSharp.exe'), version_high, version_low) and
-		((version_high > $00010000) or ((version_high = $00010000) and (version_low >= $00010000))) then
-		if not Exec(ExpandConstant('{app}\BiliFavSyncSharp.exe'), '--check-install', '', SW_HIDE, ewWaitUntilTerminated, result_code) or (result_code <> 0) then
-			Result := '请先从托盘退出旧程序，再重试安装。';
-	if Result = '' then
-		Result := CheckInstallWriteAccess;
+	Result := CheckInstallWriteAccess;
 end;
 
 function InitializeUninstall: Boolean;
 var
-	result_code: Integer;
+	service, tasks, task, xml, commands: Variant;
+	i, j: Integer;
 begin
-	Result := True;
-	if FileExists(ExpandConstant('{app}\BiliFavSyncSharp.exe')) then
-		Result := Exec(ExpandConstant('{app}\BiliFavSyncSharp.exe'), '--check-uninstall', '', SW_HIDE, ewWaitUntilTerminated, result_code) and (result_code = 0);
+	Result := False;
+	try
+		service := CreateOleObject('Schedule.Service');
+		service.Connect();
+		tasks := service.GetFolder('\').GetTasks(1);
+		for i := 1 to tasks.Count do begin
+			task := tasks.Item(i);
+			if Pos('BiliFavSyncSharp-', task.Name) = 1 then begin
+				xml := CreateOleObject('MSXML2.DOMDocument.6.0');
+				xml.async := False;
+				if not xml.loadXML(task.Xml) then
+					raiseException('无法读取自启任务定义。');
+				commands := xml.selectNodes('//*[local-name()="Exec"]/*[local-name()="Command"]');
+				for j := 0 to commands.length - 1 do begin
+					if CompareText(commands.item(j).text, ExpandConstant('{app}\BiliFavSyncSharp.exe')) = 0 then begin
+						MsgBox('请先在程序设置中关闭该安装位置的登录自启，然后重试卸载。', mbInformation, MB_OK);
+						exit;
+					end;
+				end;
+			end;
+		end;
+		Result := True;
+	except
+		MsgBox('无法核对登录自启任务：' + GetExceptionMessage, mbError, MB_OK);
+	end;
 end;

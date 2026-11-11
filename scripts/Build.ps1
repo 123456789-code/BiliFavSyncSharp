@@ -20,6 +20,7 @@ $build_env = @{
 [void][IO.Directory]::CreateDirectory($build_env.TEMP)
 $previous = @{}
 try {
+	& (Join-Path $PSScriptRoot 'Prepare-Tools.ps1')
 	foreach ($name in $build_env.Keys) {
 		$previous[$name] = [Environment]::GetEnvironmentVariable($name)
 		[Environment]::SetEnvironmentVariable($name, $build_env[$name])

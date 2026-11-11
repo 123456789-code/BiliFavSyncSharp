@@ -73,7 +73,7 @@ internal sealed class SyncEngine(AppSettings settings, string session, Action<st
 		string pool = Path.Combine(root, ".pool");
 		if (incoming.Parts > previous) {
 			log($"下载 {bv} · {incoming.Title} · P{previous + 1}–P{incoming.Parts}");
-			await Downloader.RunAsync(settings.Downloader, session, pool, bv, previous, incoming.Parts, token);
+			await Downloader.RunAsync(session, pool, bv, previous, incoming.Parts, token);
 		}
 		string description = Path.Combine(pool, bv, "desc.txt");
 		if (!File.Exists(description))

@@ -12,7 +12,6 @@ internal sealed class AppSettings {
 	public string ProtectedSession { get; set; } = "";
 	public long UserId { get; set; }
 	public string StorageRoot { get; set; } = "";
-	public string Downloader { get; set; } = "";
 }
 
 internal sealed class LibraryIndex {

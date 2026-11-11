@@ -4,7 +4,6 @@ internal sealed class SettingsDialog : Form {
 	private readonly TextBox Uid = new();
 	private readonly TextBox Session = new() { UseSystemPasswordChar = true };
 	private readonly TextBox Root = new();
-	private readonly TextBox Binary = new();
 
 	private readonly CheckBox Startup = new() { Text = "登录 Windows 后自动启动", AutoSize = true };
 	private readonly CheckBox Elevated = new() { Text = "以管理员权限启动（下次启动生效）", AutoSize = true };
@@ -29,8 +28,7 @@ internal sealed class SettingsDialog : Form {
 		Session.Text = session;
 		Session.PlaceholderText = "离线重建可留空";
 		Root.Text = settings.StorageRoot;
-		Binary.Text = settings.Downloader;
-		var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 7, Padding = new Padding(22) };
+		var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 6, Padding = new Padding(22) };
 		grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 		grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 		grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -38,17 +36,11 @@ internal sealed class SettingsDialog : Form {
 		AddField(grid, 0, "用户 UID", Uid);
 		AddField(grid, 1, "SESSDATA", Session);
 		AddField(grid, 2, "视频库目录", Root);
-		AddField(grid, 3, "BBDown 路径", Binary);
 		grid.Controls.Add(UiTheme.Button("选择目录", (_, _) => {
 			using var picker = new FolderBrowserDialog { SelectedPath = Root.Text };
 			if (picker.ShowDialog(this) == DialogResult.OK)
 				Root.Text = picker.SelectedPath;
 		}), 2, 2);
-		grid.Controls.Add(UiTheme.Button("选择文件", (_, _) => {
-			using var picker = new OpenFileDialog { Filter = "BBDown 程序|BBDown.exe|可执行文件|*.exe" };
-			if (picker.ShowDialog(this) == DialogResult.OK)
-				Binary.Text = picker.FileName;
-		}), 2, 3);
 		Startup.Checked = settings.StartAtLogon;
 		Elevated.Checked = settings.RunAsAdministrator;
 		Tray.Checked = settings.StayInTray;
@@ -67,7 +59,7 @@ internal sealed class SettingsDialog : Form {
 		});
 		maintenance.Controls.Add(repair);
 		options.Controls.Add(maintenance);
-		grid.Controls.Add(options, 0, 4);
+		grid.Controls.Add(options, 0, 3);
 		grid.SetColumnSpan(options, 3);
 		grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 		grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 8));
@@ -75,7 +67,7 @@ internal sealed class SettingsDialog : Form {
 		Button save = UiTheme.Button("保存", async (_, _) => await SaveAsync(), true);
 		Button cancel = UiTheme.Button("取消", (_, _) => DialogResult = DialogResult.Cancel);
 		actions.Controls.AddRange([save, cancel]);
-		grid.Controls.Add(actions, 0, 6);
+		grid.Controls.Add(actions, 0, 5);
 		grid.SetColumnSpan(actions, 3);
 		AcceptButton = save;
 		CancelButton = cancel;
@@ -110,7 +102,6 @@ internal sealed class SettingsDialog : Form {
 		try {
 			var updated = new AppSettings {
 				StorageRoot = Root.Text.Trim(),
-				Downloader = Binary.Text.Trim(),
 				UserId = uid,
 				StartAtLogon = Startup.Checked,
 				RunAsAdministrator = Elevated.Checked,

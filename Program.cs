@@ -48,7 +48,7 @@ internal static class Program {
 					PostMessageW(new IntPtr(0xffff), ShowMessage, IntPtr.Zero, IntPtr.Zero);
 				return 0;
 			}
-			AppSettings settings = File.Exists(AppStore.SettingsPath) ? AppStore.Read<AppSettings>(AppStore.SettingsPath) : new();
+			AppSettings settings = AppStore.LoadSettings();
 			if (settings.RunAsAdministrator && !StartupRegistration.IsAdministrator()) {
 				try {
 					using var child = StartupActions.Elevate([.. args, "--elevated-user", sid]);
@@ -65,6 +65,7 @@ internal static class Program {
 					PostMessageW(new IntPtr(0xffff), ShowMessage, IntPtr.Zero, IntPtr.Zero);
 				return 0;
 			}
+			using var installation_guard = new Mutex(false, @"Global\BiliFavSyncSharp.Running");
 			using var form = new MainForm(settings, tray);
 			Application.Run(form);
 			return 0;
