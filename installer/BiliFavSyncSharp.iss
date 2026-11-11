@@ -121,7 +121,9 @@ end;
 function InitializeUninstall: Boolean;
 var
 	service, tasks, task, xml, commands: Variant;
-	i, j: Integer;
+	i, j, count: Integer;
+	task_name, command_path: String;
+	loaded: Boolean;
 begin
 	Result := False;
 	try
@@ -130,14 +132,18 @@ begin
 		tasks := service.GetFolder('\').GetTasks(1);
 		for i := 1 to tasks.Count do begin
 			task := tasks.Item(i);
-			if Pos('BiliFavSyncSharp-', task.Name) = 1 then begin
+			task_name := task.Name;
+			if Pos('BiliFavSyncSharp-', task_name) = 1 then begin
 				xml := CreateOleObject('MSXML2.DOMDocument.6.0');
 				xml.async := False;
-				if not xml.loadXML(task.Xml) then
+				loaded := xml.loadXML(task.Xml);
+				if not loaded then
 					raiseException('无法读取自启任务定义。');
 				commands := xml.selectNodes('//*[local-name()="Exec"]/*[local-name()="Command"]');
-				for j := 0 to commands.length - 1 do begin
-					if CompareText(commands.item(j).text, ExpandConstant('{app}\BiliFavSyncSharp.exe')) = 0 then begin
+				count := commands.length;
+				for j := 0 to count - 1 do begin
+					command_path := commands.item(j).text;
+					if CompareText(command_path, ExpandConstant('{app}\BiliFavSyncSharp.exe')) = 0 then begin
 						MsgBox('请先在程序设置中关闭该安装位置的登录自启，然后重试卸载。', mbInformation, MB_OK);
 						exit;
 					end;
