@@ -1,4 +1,6 @@
-﻿namespace BiliFavSyncSharp;
+﻿using System.Diagnostics;
+
+namespace BiliFavSyncSharp;
 
 internal sealed class MainForm : Form {
 	private AppSettings Settings;
@@ -20,6 +22,7 @@ internal sealed class MainForm : Form {
 	private readonly Label Summary = new() { AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = UiTheme.Muted };
 	private readonly Label Status = new() { AutoSize = true, Text = "就绪", Margin = new Padding(24, 0, 0, 16) };
 	private readonly DataGridView Grid = new();
+	private readonly ContextMenuStrip CellMenu = new();
 	private readonly ListBox Log = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true, BorderStyle = BorderStyle.None, Margin = new Padding(24, 8, 24, 12) };
 
 	public MainForm(AppSettings? settings = null, bool start_hidden = false) {
@@ -82,6 +85,9 @@ internal sealed class MainForm : Form {
 			Grid.Columns.Add(caption, caption);
 		Grid.Columns[0].FillWeight = 200;
 		Grid.Columns[3].FillWeight = 42;
+		CellMenu.Items.Add("复制单元格文本", null, (_, _) => CopyCell());
+		Grid.CellMouseClick += ShowCellMenu;
+		Grid.CellMouseDoubleClick += OpenVideoFolder;
 		layout.Controls.Add(Grid, 0, 3);
 		layout.Controls.Add(Log, 0, 4);
 		layout.Controls.Add(Status, 0, 5);
@@ -143,6 +149,7 @@ internal sealed class MainForm : Form {
 		};
 		FormClosed += (_, _) => {
 			Timer.Dispose();
+			CellMenu.Dispose();
 			TrayIcon.Visible = false;
 			TrayIcon.ContextMenuStrip?.Dispose();
 			TrayIcon.Dispose();
@@ -186,6 +193,46 @@ internal sealed class MainForm : Form {
 		return true;
 	}
 
+	private void ShowCellMenu(object? sender, DataGridViewCellMouseEventArgs args) {
+		if (args.Button != MouseButtons.Right || args.RowIndex < 0 || args.ColumnIndex < 0)
+			return;
+		DataGridViewCell cell = Grid.Rows[args.RowIndex].Cells[args.ColumnIndex];
+		Grid.CurrentCell = cell;
+		string text = Convert.ToString(cell.FormattedValue) ?? "";
+		CellMenu.Tag = text;
+		CellMenu.Items[0].Enabled = text.Length > 0;
+		CellMenu.Show(Grid, Grid.PointToClient(Cursor.Position));
+	}
+
+	private void CopyCell() {
+		if (CellMenu.Tag is not string { Length: > 0 } text)
+			return;
+		try { Clipboard.SetText(text); }
+		catch (System.Runtime.InteropServices.ExternalException) {
+			MessageBox.Show(this, "剪贴板正被其他程序占用，请重试。", "无法复制");
+		}
+	}
+
+	private void OpenVideoFolder(object? sender, DataGridViewCellMouseEventArgs args) {
+		if (args.Button != MouseButtons.Left || args.RowIndex < 0 || args.ColumnIndex != Grid.Columns["视频标题"]!.Index)
+			return;
+		if (Grid.Rows[args.RowIndex].Tag is not LibraryVideo video)
+			return;
+		try {
+			string? directory = LibraryFiles.FindVideoFolder(Settings.StorageRoot, video);
+			if (directory is null) {
+				MessageBox.Show(this, $"未找到《{video.Title}》的收藏夹目录。请检查视频库路径，或使用“重建硬链接”。", "打开视频目录");
+				return;
+			}
+			var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"));
+			start.ArgumentList.Add(directory);
+			Process.Start(start)?.Dispose();
+		}
+		catch (Exception exception) {
+			MessageBox.Show(this, exception.Message, "无法打开视频目录");
+		}
+	}
+
 	private void RefreshLibrary() {
 		Grid.Rows.Clear();
 		Summary.Text = "请选择视频库目录";
@@ -193,8 +240,10 @@ internal sealed class MainForm : Form {
 			return;
 		try {
 			LibraryIndex index = AppStore.LoadIndex(Settings.StorageRoot);
-			foreach ((string bv, LibraryVideo video) in index.Videos)
-				Grid.Rows.Add(video.Title, bv, video.Author, video.Parts, string.Join("、", video.Folders));
+			foreach ((string bv, LibraryVideo video) in index.Videos) {
+				int row = Grid.Rows.Add(video.Title, bv, video.Author, video.Parts, string.Join("、", video.Folders));
+				Grid.Rows[row].Tag = video;
+			}
 			Summary.Text = $"视频 {index.Videos.Count} 部    上次同步  {(index.Config.LastSync.Length == 0 ? "尚无记录" : index.Config.LastSync)}";
 		}
 		catch (Exception exception) {

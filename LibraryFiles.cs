@@ -41,6 +41,19 @@ internal static class LibraryFiles {
 		return Path.Combine(root, name);
 	}
 
+	private static string VideoFolderPath(string parent, string title) {
+		return Path.Combine(parent, Component(title));
+	}
+
+	public static string? FindVideoFolder(string root, LibraryVideo video) {
+		foreach (string folder in video.Folders) {
+			string path = VideoFolderPath(FolderPath(root, folder), video.Title);
+			if (Directory.Exists(path))
+				return path;
+		}
+		return null;
+	}
+
 	private static void CheckDirectory(string path) {
 		if (Directory.Exists(path) && File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
 			throw new IOException($"目录是重解析点：{path}");
@@ -78,7 +91,7 @@ internal static class LibraryFiles {
 		CheckDirectory(video);
 		string parent = FolderPath(root, folder);
 		EnsureDirectory(parent);
-		string destination = Path.Combine(parent, Component(title));
+		string destination = VideoFolderPath(parent, title);
 		EnsureDirectory(destination);
 		var seen = new HashSet<int>();
 		foreach (string page in Directory.EnumerateDirectories(video).Order(StringComparer.OrdinalIgnoreCase)) {
