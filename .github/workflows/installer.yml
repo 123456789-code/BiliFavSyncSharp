@@ -1,0 +1,43 @@
+﻿name: Windows installer
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build Chinese x64 installer
+        id: package
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (!(Test-Path -LiteralPath $compiler -PathType Leaf)) { throw 'Runner 缺少 Inno Setup 6。' }
+          ./scripts/Publish-Release.ps1 -InstallerCompiler $compiler
+          $setup = @(Get-ChildItem -Path 'artifacts/*/*-Setup-x64.exe')
+          if ($setup.Count -ne 1) { throw '需要一个安装包。' }
+          "directory=$($setup[0].DirectoryName)" >> $env:GITHUB_OUTPUT
+      - name: Verify fresh install, upgrade and uninstall
+        env:
+          RELEASE_DIR: ${{ steps.package.outputs.directory }}
+        run: ./scripts/Test-Installer.ps1 -ReleaseRoot $env:RELEASE_DIR
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: BiliFavSyncSharp-Windows-x64
+          if-no-files-found: error
+          path: |
+            artifacts/*/*-Setup-x64.exe
+            artifacts/*/SHA256SUMS.txt
