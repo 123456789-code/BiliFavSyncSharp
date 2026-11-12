@@ -9,6 +9,7 @@ internal sealed class MainForm : Form {
 	private bool Exiting;
 	private bool Editing;
 	private bool UpdatingSwitch;
+	private volatile bool DetailedLogging;
 	private LoginSession? Account;
 	private string Session = "";
 	private CancellationTokenSource? Active;
@@ -54,7 +55,23 @@ internal sealed class MainForm : Form {
 		RebuildButton = UiTheme.Button("重建硬链接", async (_, _) => await RunAsync(true));
 		StopButton = UiTheme.Button("取消任务", (_, _) => { Hourly.Checked = false; Active?.Cancel(); });
 		StopButton.Enabled = false;
-		toolbar.Controls.AddRange([SyncButton, RebuildButton, StopButton]);
+		DetailedLogging = Settings.DetailedLogging;
+		var verbose = new CheckBox { Text = "详细日志", AutoSize = true, Checked = DetailedLogging, Margin = new Padding(8, 10, 8, 0) };
+		verbose.CheckedChanged += (_, _) => {
+			if (verbose.Checked == DetailedLogging)
+				return;
+			Settings.DetailedLogging = verbose.Checked;
+			try {
+				AppStore.Save(AppStore.SettingsPath, Settings);
+				DetailedLogging = verbose.Checked;
+			}
+			catch (Exception exception) {
+				Settings.DetailedLogging = DetailedLogging;
+				verbose.Checked = DetailedLogging;
+				MessageBox.Show(this, exception.Message, "日志设置保存失败");
+			}
+		};
+		toolbar.Controls.AddRange([SyncButton, RebuildButton, StopButton, UiTheme.Button("打开日志", (_, _) => OpenLog()), verbose]);
 		layout.Controls.Add(toolbar, 0, 1);
 		var summary = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Padding = new Padding(24, 4, 24, 8) };
 		summary.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -204,6 +221,20 @@ internal sealed class MainForm : Form {
 		CellMenu.Show(Grid, Grid.PointToClient(Cursor.Position));
 	}
 
+	private void OpenLog() {
+		try {
+			string path = Path.Combine(AppStore.DataDirectory, "latest.log");
+			if (!File.Exists(path)) {
+				MessageBox.Show(this, "开始一次同步或重建后即可查看日志。", "任务日志");
+				return;
+			}
+			var info = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "notepad.exe"));
+			info.ArgumentList.Add(path);
+			Process.Start(info)?.Dispose();
+		}
+		catch (Exception exception) { MessageBox.Show(this, exception.Message, "无法打开日志"); }
+	}
+
 	private void CopyCell() {
 		if (CellMenu.Tag is not string { Length: > 0 } text)
 			return;
@@ -284,45 +315,64 @@ internal sealed class MainForm : Form {
 		StopButton.Enabled = true;
 		Status.Text = rebuild ? "正在重建硬链接…" : "正在同步收藏夹…";
 		Log.Items.Clear();
-		IProgress<string> progress = new Progress<string>(line => {
-			if (IsDisposed)
-				return;
-			if (Log.Items.Count >= 500)
-				Log.Items.RemoveAt(0);
-			Log.Items.Add(line);
-			Log.TopIndex = Log.Items.Count - 1;
-		});
-		try {
-			if (!rebuild && Account is not null) {
-				using var passport = new PassportClient();
-				await passport.MaintainAsync(Account, SaveLogin, cancellation.Token);
+		var pending = new Queue<string>();
+		void QueueLine(string line) {
+			lock (pending) {
+				if (pending.Count == 500)
+					pending.Dequeue();
+				pending.Enqueue(line);
 			}
-			await Task.Run(async () => {
-				using var writer = new StreamWriter(Path.Combine(AppStore.DataDirectory, "latest.log"), false) { AutoFlush = true };
-				void Report(string message) {
-					string line = $"{DateTime.Now:HH:mm:ss}  {message}";
-					writer.WriteLine(line);
-					progress.Report(line);
-				}
-				var engine = new SyncEngine(Settings, Session, Report);
-				try {
-					await engine.RunAsync(rebuild, cancellation.Token);
-					Report("任务完成");
-				}
-				catch (Exception exception) {
-					Report(exception.Message);
-					throw;
-				}
-			});
+		}
+		void FlushLines() {
+			string[] lines;
+			lock (pending) {
+				if (pending.Count == 0)
+					return;
+				lines = pending.ToArray();
+				pending.Clear();
+			}
+			Log.BeginUpdate();
+			try {
+				while (Log.Items.Count + lines.Length > 500)
+					Log.Items.RemoveAt(0);
+				Log.Items.AddRange(lines);
+				Log.TopIndex = Log.Items.Count - 1;
+			}
+			finally { Log.EndUpdate(); }
+		}
+		using var log_timer = new System.Windows.Forms.Timer { Interval = 200 };
+		log_timer.Tick += (_, _) => FlushLines();
+		log_timer.Start();
+		RunLog? journal = null;
+		try {
+			journal = new RunLog(Path.Combine(AppStore.DataDirectory, "latest.log"), QueueLine, () => DetailedLogging);
+			journal.Protect(Session, Account?.Csrf, Account?.RefreshToken, Account?.PendingConfirmation);
+			journal.Write(rebuild ? "开始重建硬链接" : "开始同步收藏夹");
+			if (!rebuild && Account is not null) {
+				journal.Detail("检查扫码登录会话及续期状态");
+				using var passport = new PassportClient();
+				LoginSession previous = Account;
+				await passport.MaintainAsync(Account, SaveLogin, cancellation.Token);
+				journal.Protect(Session, Account?.Csrf, Account?.RefreshToken, Account?.PendingConfirmation);
+				journal.Detail(previous.Session == Session ? "登录会话已就绪" : "会话已更新");
+			}
+			var engine = new SyncEngine(Settings, Session, journal.Write, journal.Detail);
+			await Task.Run(() => engine.RunAsync(rebuild, cancellation.Token));
+			journal.Write("任务完成");
 			Status.Text = "任务完成";
 		}
 		catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
 			Status.Text = "任务已取消";
+			journal?.Write(Status.Text);
 		}
 		catch (Exception exception) {
 			Status.Text = $"任务失败 · {exception.Message}";
+			journal?.Write(Status.Text);
 		}
 		finally {
+			journal?.Dispose();
+			log_timer.Stop();
+			FlushLines();
 			Active = null;
 			SettingsButton.Enabled = SyncButton.Enabled = RebuildButton.Enabled = true;
 			StopButton.Enabled = false;

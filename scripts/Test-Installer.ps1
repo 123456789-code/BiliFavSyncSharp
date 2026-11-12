@@ -12,7 +12,7 @@ if (((Get-Content -LiteralPath (Join-Path $ReleaseRoot 'SHA256SUMS.txt') -Raw).T
 }
 $destination = Join-Path $env:ProgramFiles 'BiliFavSyncSharp'
 $app_path = Join-Path $destination 'BiliFavSyncSharp.exe'
-$config_path = Join-Path $destination 'settings.json'
+$config_path = Join-Path $env:LOCALAPPDATA 'BiliFavSyncSharp\settings.json'
 
 function Invoke-Checked([string]$binary, [string[]]$arguments) {
 	$process = Start-Process -FilePath $binary -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
@@ -36,10 +36,17 @@ foreach ($file in @($app_path, $setup_path)) {
 	if ([IconCheck]::ExtractIconEx($file, -1, [IntPtr]::Zero, [IntPtr]::Zero, 0) -lt 1) { throw "EXE 缺少图标：$file" }
 }
 if (Test-Path -LiteralPath $config_path) { throw '全新安装包含了用户配置。' }
-'{"AutomaticSync":false,"StartAtLogon":false,"UserId":123}' | Set-Content -Encoding utf8 -LiteralPath $config_path
+[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($config_path))
+$fixture = @{ Uid = 123; Session = 'test-session'; Csrf = 'test-csrf'; RefreshToken = 'test-refresh' } | ConvertTo-Json -Compress
+$scope = [Security.Cryptography.DataProtectionScope]::CurrentUser
+$encrypted = [Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($fixture), $null, $scope)
+@{ UserId = 123; AutomaticSync = $false; ProtectedLogin = [Convert]::ToBase64String($encrypted) } | ConvertTo-Json | Set-Content -Encoding utf8 -LiteralPath $config_path
 $config_hash = (Get-FileHash -LiteralPath $config_path).Hash
 Invoke-Checked $setup_path $install_args
 if ((Get-FileHash -LiteralPath $config_path).Hash -ne $config_hash) { throw '升级改变了现有配置。' }
+$saved = Get-Content -Raw -LiteralPath $config_path | ConvertFrom-Json
+$restored = [Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($saved.ProtectedLogin), $null, $scope)
+if ([Text.Encoding]::UTF8.GetString($restored) -ne $fixture) { throw '覆盖安装后登录凭据无法恢复。' }
 Invoke-Checked (Join-Path $destination 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
 if (Test-Path -LiteralPath $app_path) { throw '卸载未移除程序。' }
 if ((Get-FileHash -LiteralPath $config_path).Hash -ne $config_hash) { throw '卸载改变了现有配置。' }

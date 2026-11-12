@@ -71,19 +71,22 @@ internal static class LibraryFiles {
 		return info;
 	}
 
-	private static void Link(string source, string target) {
+	private static void Link(string source, string target, Action<string>? verbose) {
 		if (File.Exists(target)) {
 			FileIdentity first = Identity(source);
 			FileIdentity second = Identity(target);
-			if (first.Volume == second.Volume && first.IndexHigh == second.IndexHigh && first.IndexLow == second.IndexLow)
+			if (first.Volume == second.Volume && first.IndexHigh == second.IndexHigh && first.IndexLow == second.IndexLow) {
+				verbose?.Invoke($"复用已有硬链接 · {target}");
 				return;
+			}
 			throw new IOException($"目标已有不同文件：{target}");
 		}
 		if (!CreateHardLinkW(target, source, IntPtr.Zero))
 			throw new IOException($"创建硬链接失败：{target}", new Win32Exception(Marshal.GetLastWin32Error()));
+		verbose?.Invoke($"已创建硬链接 · {source} → {target}");
 	}
 
-	public static void LinkVideo(string root, string bv, string title, string folder, int parts, CancellationToken token) {
+	public static void LinkVideo(string root, string bv, string title, string folder, int parts, CancellationToken token, Action<string>? verbose = null) {
 		CheckBvid(bv);
 		string pool = Path.Combine(root, ".pool");
 		CheckDirectory(pool);
@@ -105,14 +108,14 @@ internal static class LibraryFiles {
 				.Order(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
 			if (media is null)
 				continue;
-			Link(media, Path.Combine(destination, $"{name} - {Path.GetFileName(media)}"));
+			Link(media, Path.Combine(destination, $"{name} - {Path.GetFileName(media)}"), verbose);
 			seen.Add(number);
 		}
 		if (seen.Count != parts || parts < 1)
 			throw new IOException($"{bv} 下载池缺少完整视频分 P（{seen.Count}/{parts}）。");
 		string description = Path.Combine(video, "desc.txt");
 		if (File.Exists(description))
-			Link(description, Path.Combine(destination, "desc.txt"));
+			Link(description, Path.Combine(destination, "desc.txt"), verbose);
 	}
 
 	private static readonly HashSet<string> MediaExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".flv", ".webm", ".mov", ".avi", ".ts", ".m4v" };

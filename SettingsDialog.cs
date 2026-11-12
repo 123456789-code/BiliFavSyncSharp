@@ -10,6 +10,8 @@ internal sealed class SettingsDialog : Form {
 	private readonly CheckBox Tray = new() { Text = "关闭窗口后在托盘继续运行", AutoSize = true };
 	private readonly CheckBox Reminder = new() { Text = "显示主窗口使用提醒", AutoSize = true };
 	private readonly CheckBox Remember = new() { Text = "记住登录状态（当前 Windows 用户加密）", AutoSize = true };
+	private bool CredentialEdited;
+	private bool RememberChosen;
 	private bool RepairRequested;
 	private bool Saving;
 
@@ -48,12 +50,17 @@ internal sealed class SettingsDialog : Form {
 		Tray.Checked = settings.StayInTray;
 		Reminder.Checked = settings.ShowReminder;
 		Remember.Checked = settings.ProtectedSession.Length > 0 || settings.ProtectedLogin.Length > 0;
-		Session.TextChanged += (_, _) => Account = null;
+		Remember.Click += (_, _) => RememberChosen = true;
+		Session.TextChanged += (_, _) => {
+			CredentialEdited = true;
+			Account = null;
+		};
 		grid.Controls.Add(UiTheme.Button("扫码登录", (_, _) => {
 			using var dialog = new QrLoginDialog();
 			if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Account is not LoginSession login)
 				return;
 			bool use_login_uid = Uid.Text.Trim().Length == 0 || Uid.Text.Trim() == Account?.Uid.ToString();
+			CredentialEdited = true;
 			Session.Text = login.Session;
 			Account = login;
 			if (use_login_uid)
@@ -108,6 +115,14 @@ internal sealed class SettingsDialog : Form {
 			MessageBox.Show(this, "请只填写 SESSDATA 的值。");
 			return;
 		}
+		if (CredentialEdited && Credential.Length > 0 && !Remember.Checked && !RememberChosen) {
+			DialogResult choice = MessageBox.Show(this, "是否在这台电脑上记住登录？“是”会使用当前 Windows 用户加密保存，重启或覆盖安装后继续使用。“否”仅在本次运行使用。", "保存登录状态", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+			if (choice == DialogResult.Cancel)
+				return;
+			Remember.Checked = choice == DialogResult.Yes;
+			RememberChosen = true;
+		}
+		bool preserve_login = !CredentialEdited && Remember.Checked && (Settings.ProtectedLogin.Length > 0 || Settings.ProtectedSession.Length > 0);
 		bool update_task = RepairRequested || Startup.Checked != Settings.StartAtLogon || (Startup.Checked && Elevated.Checked != Settings.RunAsAdministrator);
 		bool task_updated = false;
 		Saving = true;
@@ -121,8 +136,9 @@ internal sealed class SettingsDialog : Form {
 				StayInTray = Tray.Checked,
 				ShowReminder = Reminder.Checked,
 				AutomaticSync = Settings.AutomaticSync,
-				ProtectedSession = Remember.Checked && Account is null ? SessionProtection.Protect(Credential) : "",
-				ProtectedLogin = Remember.Checked && Account is not null ? SessionProtection.ProtectLogin(Account) : ""
+				DetailedLogging = Settings.DetailedLogging,
+				ProtectedSession = preserve_login ? Settings.ProtectedSession : Remember.Checked && Account is null ? SessionProtection.Protect(Credential) : "",
+				ProtectedLogin = preserve_login ? Settings.ProtectedLogin : Remember.Checked && Account is not null ? SessionProtection.ProtectLogin(Account) : ""
 			};
 			if (update_task) {
 				await StartupActions.ConfigureAsync(updated.StartAtLogon, updated.RunAsAdministrator);

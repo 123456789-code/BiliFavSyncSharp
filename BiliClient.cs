@@ -10,16 +10,25 @@ internal sealed class BiliClient : IDisposable {
 		Timeout = TimeSpan.FromSeconds(15)
 	};
 
-	public BiliClient(long uid, string session) {
+	private readonly Action<string> Verbose;
+
+	public BiliClient(long uid, string session, Action<string> verbose) {
+		Verbose = verbose;
 		Client.DefaultRequestHeaders.Add("Cookie", $"SESSDATA={session}");
 		Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) BiliFavSyncSharp/1.0");
 		Client.DefaultRequestHeaders.Referrer = new Uri($"https://space.bilibili.com/{uid}/favlist");
 	}
 
 	private async Task<JsonElement> FetchAsync(string endpoint, CancellationToken token) {
-		JsonElement response = await Client.GetFromJsonAsync<JsonElement>(endpoint, token);
+		string route = endpoint.Split('?')[0];
+		Verbose($"请求 B站接口 · {route}");
+		long start = System.Diagnostics.Stopwatch.GetTimestamp();
+		using HttpResponseMessage http = await Client.GetAsync(endpoint, token);
+		Verbose($"{route} · HTTP {(int)http.StatusCode} · {System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds:F0} ms");
+		http.EnsureSuccessStatusCode();
+		JsonElement response = await http.Content.ReadFromJsonAsync<JsonElement>(token);
 		if (response.GetProperty("code").GetInt32() != 0)
-			throw new InvalidDataException($"B站 API：{response.GetProperty("message")}");
+			throw new InvalidDataException($"B站 API {route} · 错误码 {response.GetProperty("code")}");
 		return response.GetProperty("data");
 	}
 

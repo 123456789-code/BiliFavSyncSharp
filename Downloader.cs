@@ -3,7 +3,7 @@
 namespace BiliFavSyncSharp;
 
 internal static class Downloader {
-	public static async Task RunAsync(string session, string pool, string bv, int previous, int total, CancellationToken token) {
+	public static async Task RunAsync(string session, string pool, string bv, int previous, int total, CancellationToken token, Action<string> verbose) {
 		LibraryFiles.CheckBvid(bv);
 		string tools = Path.Combine(AppContext.BaseDirectory, "tools");
 		string binary = Path.Combine(tools, "BBDown.exe");
@@ -26,7 +26,15 @@ internal static class Downloader {
 		token.ThrowIfCancellationRequested();
 		using Process process = Process.Start(info) ?? throw new IOException("无法启动 BBDown。");
 		try {
-			await process.WaitForExitAsync(token);
+			var elapsed = Stopwatch.StartNew();
+			verbose($"BBDown 已启动 · {bv} · P{previous + 1}–P{total}");
+			Task exited = process.WaitForExitAsync(token);
+			while (!exited.IsCompleted) {
+				try { await exited.WaitAsync(TimeSpan.FromSeconds(15), token); }
+				catch (TimeoutException) { verbose($"BBDown 下载中 · {bv} · 已运行 {elapsed.Elapsed.TotalSeconds:F0} 秒"); }
+			}
+			await exited;
+			verbose($"BBDown 已结束 · {bv} · 退出码 {process.ExitCode} · 用时 {elapsed.Elapsed.TotalSeconds:F1} 秒");
 		}
 		catch (OperationCanceledException) {
 			try {
