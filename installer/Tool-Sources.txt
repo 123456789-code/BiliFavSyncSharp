@@ -1,6 +1,6 @@
 ﻿BBDown 1.6.3 (win-x64, 2024-08-14)
 Source: https://github.com/nilaoda/BBDown/tree/1.6.3
-Distribution: https://github.com/nilaoda/BBDown/releases/tag/1.6.3
+Built from revision 45622f79cd766e0fc6f5cbd49fcf4960340f35c3 with a process-local direct connection switch and platform TLS verification. Vendored code and changes: vendor/BBDown, vendor/BBDown.Core, vendor/README.md.
 License: BBDown-LICENSE.txt
 
 FFmpeg 9.0.2 Essentials, Windows x64 build by Gyan

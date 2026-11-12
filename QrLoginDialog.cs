@@ -9,7 +9,10 @@ internal sealed class QrLoginDialog : Form {
 	private CancellationTokenSource? Request;
 	public LoginSession? Account { get; private set; }
 
-	public QrLoginDialog() {
+	private readonly bool UseSystemProxy;
+
+	public QrLoginDialog(bool use_system_proxy) {
+		UseSystemProxy = use_system_proxy;
 		UiTheme.Apply(this);
 		Text = "哔哩哔哩扫码登录";
 		ClientSize = new Size(360, 430);
@@ -45,7 +48,7 @@ internal sealed class QrLoginDialog : Form {
 		previous?.Dispose();
 		Status.Text = "正在获取二维码…";
 		try {
-			using var client = new PassportClient();
+			using var client = new PassportClient(use_system_proxy: UseSystemProxy);
 			LoginCode code = await client.GenerateAsync(cancellation.Token);
 			cancellation.Token.ThrowIfCancellationRequested();
 			using var qr = QRCodeGenerator.GenerateQrCode(code.Url, QRCodeGenerator.ECCLevel.M);

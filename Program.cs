@@ -17,6 +17,15 @@ internal static class Program {
 
 	[STAThread]
 	private static int Main(string[] args) {
+		if (args is ["--download-worker"])
+			return Downloader.WorkerAsync().GetAwaiter().GetResult();
+		if (args is ["--download-route", "system" or "direct"]) {
+			BBDown.BundledEngine.ConfigureNetwork(args[1] == "system");
+			var endpoint = new Uri("https://api.bilibili.com/");
+			var proxy = System.Net.Http.HttpClient.DefaultProxy;
+			Console.WriteLine(proxy.IsBypassed(endpoint) || proxy.GetProxy(endpoint) == endpoint ? "DIRECT" : "PROXY");
+			return 0;
+		}
 		ApplicationConfiguration.Initialize();
 		try {
 			if (args is ["--version"])

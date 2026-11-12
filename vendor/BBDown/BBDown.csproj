@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<Version>1.6.3</Version>
+	</PropertyGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="EngineChecks" />
+		<ProjectReference Include="../BBDown.Core/BBDown.Core.csproj" />
+	</ItemGroup>
+</Project>

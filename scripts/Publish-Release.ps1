@@ -29,11 +29,11 @@ $build_env = @{
 [void][IO.Directory]::CreateDirectory($build_env.TEMP)
 $previous = @{}
 try {
-	& (Join-Path $PSScriptRoot 'Prepare-Tools.ps1')
 	foreach ($name in $build_env.Keys) {
 		$previous[$name] = [Environment]::GetEnvironmentVariable($name)
 		[Environment]::SetEnvironmentVariable($name, $build_env[$name])
 	}
+	& (Join-Path $PSScriptRoot 'Prepare-Tools.ps1')
 	& dotnet restore $project -r win-x64 --configfile (Join-Path $PSScriptRoot 'Offline.config') --source $PackageSource --disable-build-servers -p:SelfContained=true -p:NuGetAudit=false
 	if ($LASTEXITCODE -ne 0) { throw '自包含运行时还原失败。' }
 	& dotnet publish $project --no-restore -c Release -r win-x64 --self-contained true -o $payload --disable-build-servers -p:DebugType=None -p:DebugSymbols=false
@@ -45,6 +45,7 @@ try {
 	[void][IO.Directory]::CreateDirectory($licenses)
 	Copy-Item -LiteralPath (Join-Path $project_root 'installer\HardLinkAutoBackup-LICENSE.txt') -Destination $licenses
 	Copy-Item -LiteralPath (Join-Path $project_root 'installer\QRCoder-LICENSE.txt') -Destination $licenses
+	Copy-Item -LiteralPath (Join-Path $project_root 'installer\Protobuf-LICENSE.txt') -Destination $licenses
 	$config = Get-Content -Raw -LiteralPath (Join-Path $payload 'BiliFavSyncSharp.runtimeconfig.json') | ConvertFrom-Json
 	if (!$config.runtimeOptions.includedFrameworks) { throw '运行时配置未包含自包含框架。' }
 	foreach ($framework in $config.runtimeOptions.includedFrameworks) {

@@ -20,11 +20,11 @@ $build_env = @{
 [void][IO.Directory]::CreateDirectory($build_env.TEMP)
 $previous = @{}
 try {
-	& (Join-Path $PSScriptRoot 'Prepare-Tools.ps1')
 	foreach ($name in $build_env.Keys) {
 		$previous[$name] = [Environment]::GetEnvironmentVariable($name)
 		[Environment]::SetEnvironmentVariable($name, $build_env[$name])
 	}
+	& (Join-Path $PSScriptRoot 'Prepare-Tools.ps1')
 	$project = Join-Path $project_path 'BiliFavSyncSharp.csproj'
 	& dotnet restore $project --configfile (Join-Path $PSScriptRoot 'Offline.config') --source 'https://api.nuget.org/v3/index.json' --disable-build-servers
 	if ($LASTEXITCODE -ne 0) { throw "还原失败 ($LASTEXITCODE)" }

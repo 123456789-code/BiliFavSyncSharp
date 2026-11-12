@@ -22,7 +22,25 @@ function Invoke-Checked([string]$binary, [string[]]$arguments) {
 $install_args = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-')
 Invoke-Checked $setup_path $install_args
 Invoke-Checked $app_path @('--version')
-Invoke-Checked (Join-Path $destination 'tools\BBDown.exe') @('--help')
+# A proxy selected via the runner process environment never changes Windows settings.
+# The diagnostic command probes the packaged client's route selection without sending an HTTP request.
+foreach ($mode in @('system', 'direct')) {
+	$probe = [Diagnostics.ProcessStartInfo]::new($app_path)
+	$probe.UseShellExecute = $false
+	$probe.RedirectStandardOutput = $true
+	$probe.Environment['HTTPS_PROXY'] = 'http://127.0.0.1:9'
+	$probe.Environment.Remove('NO_PROXY') | Out-Null
+	$probe.ArgumentList.Add('--download-route')
+	$probe.ArgumentList.Add($mode)
+	$expected = if ($mode -eq 'direct') { 'DIRECT' } else { 'PROXY' }
+	$process = [Diagnostics.Process]::Start($probe)
+	try {
+		$output = $process.StandardOutput.ReadToEnd()
+		$process.WaitForExit()
+		if ($process.ExitCode -ne 0 -or $output.Trim() -ne $expected) { throw "下载器网络路由验证失败：$mode" }
+	}
+	finally { $process.Dispose() }
+}
 Invoke-Checked (Join-Path $destination 'tools\ffmpeg.exe') @('-version')
 Add-Type -TypeDefinition @"
 using System;

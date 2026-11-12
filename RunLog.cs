@@ -31,10 +31,14 @@ internal sealed class RunLog : IDisposable {
 			Write($"[详细] {message}");
 	}
 
-	public void Write(string message) {
+	public string Redact(string message) {
 		foreach (string secret in Secrets)
 			message = message.Replace(secret, "[已隐藏]", StringComparison.Ordinal);
-		message = CredentialFields.Replace(message, "$1[已隐藏]");
+		return CredentialFields.Replace(message, "$1[已隐藏]");
+	}
+
+	public void Write(string message) {
+		message = Redact(message);
 		string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {message.ReplaceLineEndings(" ")}";
 		if (!WriteFailed) {
 			try { Writer.WriteLine(line); }

@@ -9,16 +9,19 @@ internal static class Program {
 		const string ARGUMENT = "带 空格\"和尾斜杠\\";
 		if (args.Length > 1 && args[0] == "child") {
 			Console.OutputEncoding = Encoding.UTF8;
-			if (Console.IsOutputRedirected || Console.IsErrorRedirected)
+			if (!Console.IsOutputRedirected || !Console.IsErrorRedirected)
 				return 96;
 			if (args[2] != ARGUMENT)
 				return 98;
 			Console.WriteLine("标准输出已启动");
 			Console.Error.WriteLine("标准错误示例");
-			Console.Write("进度 10%");
+			Console.Error.WriteLine("BFS-PROGRESS\t10\t1048576\t0");
 			while (!File.Exists(args[1]))
 				await Task.Delay(20);
-			Console.Write("\r进度 99%\n");
+			for (int frame = 0; frame < 800; frame++) {
+				Console.Error.WriteLine("BFS-PROGRESS\t99\t2097152\t0");
+			}
+			Console.Error.WriteLine("BFS-PROGRESS\t99\t2097152\t1");
 			Console.Write("tail-without-newline");
 			return 7;
 		}
@@ -29,23 +32,24 @@ internal static class Program {
 			info.ArgumentList.Add(argument);
 		var seen = new List<string>();
 		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-		int code = await DownloadConsole.RunAsync(info, line => {
-			seen.Add(line);
-			if (line.Contains("10%"))
+		int code = await DownloadConsole.RunAsync(info, seen.Add, timeout.Token, frame => {
+			if (frame?.Percent == 10 && frame.Text.Contains("1.0 MiB/s"))
 				File.WriteAllText(signal, "ok");
-		}, timeout.Token);
-		if (code != 7 || new[] { "标准输出已启动", "标准错误示例", "10%", "99%", "tail-without-newline" }.Any(item => !seen.Any(line => line.Contains(item))))
+		});
+		if (seen.Count(line => line.Contains("下载进度")) != 1 || seen.Count > 6)
+			throw new InvalidOperationException($"进度重绘污染日志队列，共 {seen.Count} 条。");
+		if (code != 7 || new[] { "标准输出已启动", "标准错误示例", "99%", "tail-without-newline" }.Any(item => !seen.Any(line => line.Contains(item))))
 			throw new InvalidOperationException($"输出或退出码不符：{code} / {string.Join(" | ", seen)}");
 		File.Delete(signal);
 		using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 		bool live_cancel = false;
 		try {
-			await DownloadConsole.RunAsync(info, line => {
-				if (line.Contains("10%")) {
+			await DownloadConsole.RunAsync(info, _ => { }, cancel.Token, frame => {
+				if (frame?.Percent == 10) {
 					live_cancel = true;
 					cancel.Cancel();
 				}
-			}, cancel.Token);
+			});
 			throw new InvalidOperationException("未取消子进程。");
 		}
 		catch (OperationCanceledException) when (live_cancel) { }
@@ -59,14 +63,14 @@ internal static class Program {
 			throw new InvalidOperationException("下载日志脱敏失败。");
 		if (args.Length > 1) {
 			var help = new ProcessStartInfo(args[1]) { WorkingDirectory = root };
-			help.ArgumentList.Add("--help");
+			help.ArgumentList.Add("--download-worker");
 			var lines = new List<string>();
 			using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-			int status = await DownloadConsole.RunAsync(help, lines.Add, limit.Token);
-			if (status != 0 || !lines.Any(line => line.Contains("--work-dir")))
-				throw new InvalidOperationException($"未捕获内置 BBDown 帮助输出（退出码 {status}）。");
+			int status = await DownloadConsole.RunAsync(help, lines.Add, limit.Token, input: """{"Bv":"fixture","Session":"","Pool":"","Previous":0,"Total":1,"UseSystemProxy":false}""");
+			if (status != 1 || !lines.Any(line => line.Contains("BV 号格式错误")))
+				throw new InvalidOperationException($"内置工作进程入口验证失败（退出码 {status}）。");
 		}
-		Console.WriteLine("PASS: real console, quoting, stdout/stderr, live progress, EOF tail, exit code and cancellation.");
+		Console.WriteLine("PASS: worker pipes, 800 in-place frames, error lines, EOF tail, exit code and cancellation.");
 		return 0;
 	}
 }

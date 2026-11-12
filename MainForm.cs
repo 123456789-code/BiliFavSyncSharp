@@ -21,6 +21,8 @@ internal sealed class MainForm : Form {
 	private readonly CheckBox Hourly = new() { AutoSize = true, Text = "每小时同步", Anchor = AnchorStyles.Right };
 	private readonly System.Windows.Forms.Timer Timer = new() { Interval = 3600000 };
 	private readonly Label Summary = new() { AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = UiTheme.Muted };
+	private readonly ProgressBar DownloadBar = new() { Width = 160, Height = 18, Visible = false };
+	private readonly Label DownloadText = new() { AutoSize = false, AutoEllipsis = true, Width = 330, Height = 24 };
 	private readonly Label Status = new() { AutoSize = true, Text = "就绪", Margin = new Padding(24, 0, 0, 16) };
 	private readonly DataGridView Grid = new();
 	private readonly ContextMenuStrip CellMenu = new();
@@ -107,7 +109,9 @@ internal sealed class MainForm : Form {
 		Grid.CellMouseDoubleClick += OpenVideoFolder;
 		layout.Controls.Add(Grid, 0, 3);
 		layout.Controls.Add(Log, 0, 4);
-		layout.Controls.Add(Status, 0, 5);
+		var task_status = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
+		task_status.Controls.AddRange([Status, DownloadBar, DownloadText]);
+		layout.Controls.Add(task_status, 0, 5);
 		layout.Controls.Add(Reminder, 0, 6);
 		Reminder.Visible = Settings.ShowReminder;
 		TrayIcon.Icon = UiTheme.AppIcon;
@@ -315,6 +319,7 @@ internal sealed class MainForm : Form {
 		StopButton.Enabled = true;
 		Status.Text = rebuild ? "正在重建硬链接…" : "正在同步收藏夹…";
 		Log.Items.Clear();
+		ConsoleFrame? latest_frame = null;
 		var pending = new Queue<string>();
 		void QueueLine(string line) {
 			lock (pending) {
@@ -324,6 +329,11 @@ internal sealed class MainForm : Form {
 			}
 		}
 		void FlushLines() {
+			ConsoleFrame? frame = DetailedLogging ? Volatile.Read(ref latest_frame) : null;
+			DownloadBar.Visible = frame?.Percent is not null;
+			if (frame?.Percent is int percent)
+				DownloadBar.Value = percent;
+			DownloadText.Text = frame?.Text ?? "";
 			string[] lines;
 			lock (pending) {
 				if (pending.Count == 0)
@@ -350,13 +360,16 @@ internal sealed class MainForm : Form {
 			journal.Write(rebuild ? "开始重建硬链接" : "开始同步收藏夹");
 			if (!rebuild && Account is not null) {
 				journal.Detail("检查扫码登录会话及续期状态");
-				using var passport = new PassportClient();
+				using var passport = new PassportClient(use_system_proxy: Settings.UseSystemProxy);
 				LoginSession previous = Account;
 				await passport.MaintainAsync(Account, SaveLogin, cancellation.Token);
 				journal.Protect(Session, Account?.Csrf, Account?.RefreshToken, Account?.PendingConfirmation);
 				journal.Detail(previous.Session == Session ? "登录会话已就绪" : "会话已更新");
 			}
-			var engine = new SyncEngine(Settings, Session, journal.Write, journal.Detail);
+			var engine = new SyncEngine(Settings, Session, journal.Write, journal.Detail, frame => {
+				ConsoleFrame? visible = frame is null ? null : frame with { Text = journal.Redact(frame.Text) };
+				Volatile.Write(ref latest_frame, visible);
+			});
 			await Task.Run(() => engine.RunAsync(rebuild, cancellation.Token));
 			journal.Write("任务完成");
 			Status.Text = "任务完成";
@@ -372,6 +385,7 @@ internal sealed class MainForm : Form {
 		finally {
 			journal?.Dispose();
 			log_timer.Stop();
+			Volatile.Write(ref latest_frame, null);
 			FlushLines();
 			Active = null;
 			SettingsButton.Enabled = SyncButton.Enabled = RebuildButton.Enabled = true;

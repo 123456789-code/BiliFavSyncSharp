@@ -5,14 +5,15 @@ using System.Text.Json;
 namespace BiliFavSyncSharp;
 
 internal sealed class BiliClient : IDisposable {
-	private readonly HttpClient Client = new(new HttpClientHandler { AllowAutoRedirect = false }) {
-		BaseAddress = new Uri("https://api.bilibili.com/"),
-		Timeout = TimeSpan.FromSeconds(15)
-	};
+	private readonly HttpClient Client;
 
 	private readonly Action<string> Verbose;
 
-	public BiliClient(long uid, string session, Action<string> verbose) {
+	public BiliClient(long uid, string session, Action<string> verbose, bool use_system_proxy) {
+		Client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseProxy = use_system_proxy }) {
+			BaseAddress = new Uri("https://api.bilibili.com/"),
+			Timeout = TimeSpan.FromSeconds(15)
+		};
 		Verbose = verbose;
 		Client.DefaultRequestHeaders.Add("Cookie", $"SESSDATA={session}");
 		Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) BiliFavSyncSharp/1.0");

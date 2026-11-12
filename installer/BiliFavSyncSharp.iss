@@ -46,6 +46,9 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "data\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+Type: files; Name: "{app}\tools\BBDown.exe"; Check: IsPreviousDownloader
+
 [Icons]
 Name: "{commonprograms}\B站收藏夹同步"; Filename: "{app}\BiliFavSyncSharp.exe"
 Name: "{commondesktop}\B站收藏夹同步"; Filename: "{app}\BiliFavSyncSharp.exe"; Tasks: desktopicon
@@ -54,6 +57,16 @@ Name: "{commondesktop}\B站收藏夹同步"; Filename: "{app}\BiliFavSyncSharp.e
 Filename: "{app}\BiliFavSyncSharp.exe"; Description: "打开B站收藏夹同步"; Flags: nowait postinstall skipifsilent unchecked
 
 [Code]
+function IsPreviousDownloader: Boolean;
+var
+	path: String;
+begin
+	path := ExpandConstant('{app}\tools\BBDown.exe');
+	Result := False;
+	if FileExists(path) then
+		Result := CompareText(GetSHA256OfFile(path), 'eb8b985af07c4757fa695204283208aee879bf79f6462a1d161e3a55b5a19cb1') = 0;
+end;
+
 function GetTempFileNameW(directory, prefix: String; unique: Cardinal; file_name: String): Cardinal;
 	external 'GetTempFileNameW@kernel32.dll stdcall';
 

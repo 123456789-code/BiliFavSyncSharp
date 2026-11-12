@@ -1,3 +1,7 @@
 ﻿<Solution>
 	<Project Path="BiliFavSyncSharp.csproj" />
+	<Folder Name="/BBDown/">
+		<Project Path="vendor/BBDown/BBDown.csproj" />
+		<Project Path="vendor/BBDown.Core/BBDown.Core.csproj" />
+	</Folder>
 </Solution>

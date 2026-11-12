@@ -2,7 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot
 $cache = Join-Path $project '.local/tool-downloads'
-$destination = Join-Path $project '.local/bundled'
+$destination = Join-Path $project '.local/bundled-media'
 [void][IO.Directory]::CreateDirectory($cache)
 [void][IO.Directory]::CreateDirectory($destination)
 
@@ -27,9 +27,6 @@ function Copy-Entry($archive, [string]$pattern, [string]$name) {
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$bbdown = Get-Archive 'https://github.com/nilaoda/BBDown/releases/download/1.6.3/BBDown_1.6.3_20240814_win-x64.zip' '40F1E2AF0D4E74DF765C6F93D2E931F9BEA201D5168D0BC62DC35A54B7E0EC02'
-try { Copy-Entry $bbdown '(^|/)BBDown\.exe$' 'BBDown.exe' }
-finally { $bbdown.Dispose() }
 $ffmpeg = Get-Archive 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip' '60F467265B1E312373DBCD92200C2618A74850F98D3D078E94296BB3FA2047BA'
 try {
 	Copy-Entry $ffmpeg '(^|/)bin/ffmpeg\.exe$' 'ffmpeg.exe'

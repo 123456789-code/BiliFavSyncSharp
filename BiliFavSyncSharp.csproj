@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<Version>1.3.1</Version>
+		<Version>1.4.0</Version>
 		<ApplicationIcon>Assets\App.ico</ApplicationIcon>
 		<SatelliteResourceLanguages>zh-Hans;zh-CN</SatelliteResourceLanguages>
 		<OutputType>WinExe</OutputType>
@@ -9,11 +9,12 @@
 		<ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<DefaultItemExcludes>$(DefaultItemExcludes);.local/**;artifacts/**;tests/**</DefaultItemExcludes>
+		<DefaultItemExcludes>$(DefaultItemExcludes);.local/**;artifacts/**;tests/**;vendor/**</DefaultItemExcludes>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="QRCoder" Version="1.7.0" />
+		<ProjectReference Include="vendor/BBDown/BBDown.csproj" />
 		<EmbeddedResource Include="Assets\App.ico" />
-		<Content Include=".local\bundled\**\*" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+		<Content Include=".local\bundled-media\**\*" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
 	</ItemGroup>
 </Project>
