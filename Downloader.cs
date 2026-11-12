@@ -10,11 +10,7 @@ internal static class Downloader {
 		string ffmpeg = Path.Combine(tools, "ffmpeg.exe");
 		if (!File.Exists(binary) || !File.Exists(ffmpeg))
 			throw new FileNotFoundException("内置下载组件缺失，请重新安装程序。");
-		var info = new ProcessStartInfo(binary) {
-			WorkingDirectory = pool,
-			UseShellExecute = false,
-			CreateNoWindow = true
-		};
+		var info = new ProcessStartInfo(binary) { WorkingDirectory = pool };
 		info.ArgumentList.Add(bv);
 		if (previous > 0) {
 			info.ArgumentList.Add("-p");
@@ -24,28 +20,11 @@ internal static class Downloader {
 		foreach (string option in options)
 			info.ArgumentList.Add(option);
 		token.ThrowIfCancellationRequested();
-		using Process process = Process.Start(info) ?? throw new IOException("无法启动 BBDown。");
-		try {
-			var elapsed = Stopwatch.StartNew();
-			verbose($"BBDown 已启动 · {bv} · P{previous + 1}–P{total}");
-			Task exited = process.WaitForExitAsync(token);
-			while (!exited.IsCompleted) {
-				try { await exited.WaitAsync(TimeSpan.FromSeconds(15), token); }
-				catch (TimeoutException) { verbose($"BBDown 下载中 · {bv} · 已运行 {elapsed.Elapsed.TotalSeconds:F0} 秒"); }
-			}
-			await exited;
-			verbose($"BBDown 已结束 · {bv} · 退出码 {process.ExitCode} · 用时 {elapsed.Elapsed.TotalSeconds:F1} 秒");
-		}
-		catch (OperationCanceledException) {
-			try {
-				if (!process.HasExited)
-					process.Kill(true);
-			}
-			catch (InvalidOperationException) when (process.HasExited) { }
-			await process.WaitForExitAsync();
-			throw;
-		}
-		if (process.ExitCode != 0)
-			throw new IOException($"BBDown 下载 {bv} 失败，退出码 {process.ExitCode}。");
+		var elapsed = Stopwatch.StartNew();
+		verbose($"启动 BBDown · {bv} · P{previous + 1}–P{total}");
+		int code = await DownloadConsole.RunAsync(info, verbose, token);
+		verbose($"BBDown 已结束 · {bv} · 退出码 {code} · 用时 {elapsed.Elapsed.TotalSeconds:F1} 秒");
+		if (code != 0)
+			throw new IOException($"BBDown 下载 {bv} 失败，退出码 {code}。");
 	}
 }

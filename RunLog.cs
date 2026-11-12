@@ -1,10 +1,13 @@
-﻿namespace BiliFavSyncSharp;
+﻿using System.Text.RegularExpressions;
+
+namespace BiliFavSyncSharp;
 
 internal sealed class RunLog : IDisposable {
 	private readonly StreamWriter Writer;
 	private readonly Action<string> Display;
 	private readonly Func<bool> Detailed;
 	private readonly HashSet<string> Secrets = new(StringComparer.Ordinal);
+	private static readonly Regex CredentialFields = new(@"(?i)(\b(?:SESSDATA|bili_jct|refresh_token|access_token|access_key|refresh_csrf|w_rid|sign)=)[^\s;&""']+", RegexOptions.CultureInvariant);
 	private bool WriteFailed;
 
 	public RunLog(string path, Action<string> display, Func<bool> detailed) {
@@ -15,8 +18,11 @@ internal sealed class RunLog : IDisposable {
 
 	public void Protect(params string?[] values) {
 		foreach (string? value in values) {
-			if (!string.IsNullOrEmpty(value))
+			if (!string.IsNullOrEmpty(value)) {
 				Secrets.Add(value);
+				Secrets.Add(Uri.UnescapeDataString(value));
+				Secrets.Add(Uri.EscapeDataString(value));
+			}
 		}
 	}
 
@@ -28,6 +34,7 @@ internal sealed class RunLog : IDisposable {
 	public void Write(string message) {
 		foreach (string secret in Secrets)
 			message = message.Replace(secret, "[已隐藏]", StringComparison.Ordinal);
+		message = CredentialFields.Replace(message, "$1[已隐藏]");
 		string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {message.ReplaceLineEndings(" ")}";
 		if (!WriteFailed) {
 			try { Writer.WriteLine(line); }

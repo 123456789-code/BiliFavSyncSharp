@@ -45,6 +45,10 @@ jobs:
           if ($setup.Count -ne 1) { throw '需要一个安装包。' }
           "installer_sha256=$((Get-FileHash -LiteralPath $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "directory=$($setup[0].DirectoryName)" >> $env:GITHUB_OUTPUT
+      - name: Test live downloader console and cancellation
+        env:
+          RELEASE_DIR: ${{ steps.package.outputs.directory }}
+        run: dotnet run --project tests/ConsoleChecks/ConsoleChecks.csproj -c Release -- "$env:RUNNER_TEMP/console-checks" "$env:RELEASE_DIR/app/tools/BBDown.exe"
       - name: Verify fresh install, upgrade and uninstall
         env:
           RELEASE_DIR: ${{ steps.package.outputs.directory }}
