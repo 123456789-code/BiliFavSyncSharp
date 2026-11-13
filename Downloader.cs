@@ -5,7 +5,7 @@ using BBDown;
 
 namespace BiliFavSyncSharp;
 
-internal sealed record DownloadRequest(string Bv, string Session, string Pool, int Previous, int Total, bool UseSystemProxy);
+internal sealed record DownloadRequest(string Bv, string Session, string Pool, int Previous, int Total, bool UseSystemProxy, string ProxyEndpoint = "");
 
 internal static class Downloader {
 	// The worker gets credentials over its private standard input pipe.
@@ -15,7 +15,7 @@ internal static class Downloader {
 		try {
 			DownloadRequest request = JsonSerializer.Deserialize<DownloadRequest>(await Console.In.ReadToEndAsync()) ?? throw new IOException("下载参数缺失。");
 			LibraryFiles.CheckBvid(request.Bv);
-			BundledEngine.ConfigureNetwork(request.UseSystemProxy);
+			BundledEngine.ConfigureNetwork(request.UseSystemProxy, ProxyAddress.Resolve(request.UseSystemProxy, request.ProxyEndpoint));
 			string ffmpeg = Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg.exe");
 			if (!File.Exists(ffmpeg))
 				throw new FileNotFoundException("内置 FFmpeg 缺失，请重新安装。");
@@ -30,11 +30,11 @@ internal static class Downloader {
 		}
 	}
 
-	public static async Task RunAsync(string session, string pool, string bv, int previous, int total, CancellationToken token, Action<string> verbose, bool use_system_proxy, Action<ConsoleFrame?>? preview) {
+	public static async Task RunAsync(string session, string pool, string bv, int previous, int total, CancellationToken token, Action<string> verbose, bool use_system_proxy, string proxy_endpoint, Action<ConsoleFrame?>? preview) {
 		LibraryFiles.CheckBvid(bv);
 		var info = new ProcessStartInfo(Environment.ProcessPath!) { WorkingDirectory = pool };
 		info.ArgumentList.Add("--download-worker");
-		var request = new DownloadRequest(bv, session, pool, previous, total, use_system_proxy);
+		var request = new DownloadRequest(bv, session, pool, previous, total, use_system_proxy, proxy_endpoint);
 		var elapsed = Stopwatch.StartNew();
 		verbose($"启动内置 BBDown · {bv} · P{previous + 1}–P{total}");
 		int code = await DownloadConsole.RunAsync(info, verbose, token, preview, JsonSerializer.Serialize(request));

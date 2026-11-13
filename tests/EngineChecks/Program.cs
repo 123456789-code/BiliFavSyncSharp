@@ -7,14 +7,15 @@ namespace EngineChecks;
 
 internal static class Program {
 	private static async Task Main(string[] args) {
-		bool proxy = args[0] == "system";
+		bool manual = args[0] == "manual";
+		bool proxy = manual || args[0] == "system";
 		using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 		using var server = new TcpListener(IPAddress.Loopback, 0);
 		server.Start();
 		int port = ((IPEndPoint)server.LocalEndpoint).Port;
-		Environment.SetEnvironmentVariable("HTTP_PROXY", $"http://127.0.0.1:{(proxy ? port : 1)}");
+		Environment.SetEnvironmentVariable("HTTP_PROXY", $"http://127.0.0.1:{(proxy && !manual ? port : 1)}");
 		Environment.SetEnvironmentVariable("NO_PROXY", "");
-		BundledEngine.ConfigureNetwork(proxy);
+		BundledEngine.ConfigureNetwork(proxy, manual ? new WebProxy($"http://127.0.0.1:{port}") : null);
 		string url = proxy ? "http://media.invalid/video" : $"http://127.0.0.1:{port}/video";
 		byte[] media = "fixture-media"u8.ToArray();
 		async Task ServeAsync() {

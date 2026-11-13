@@ -9,10 +9,10 @@ internal sealed class BiliClient : IDisposable {
 
 	private readonly Action<string> Verbose;
 
-	public BiliClient(long uid, string session, Action<string> verbose, bool use_system_proxy) {
-		Client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseProxy = use_system_proxy }) {
+	public BiliClient(long uid, string session, Action<string> verbose, bool use_system_proxy, string proxy_endpoint, HttpMessageHandler? handler = null) {
+		Client = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseProxy = use_system_proxy, Proxy = ProxyAddress.Resolve(use_system_proxy, proxy_endpoint) }) {
 			BaseAddress = new Uri("https://api.bilibili.com/"),
-			Timeout = TimeSpan.FromSeconds(15)
+			Timeout = TimeSpan.FromSeconds(30)
 		};
 		Verbose = verbose;
 		Client.DefaultRequestHeaders.Add("Cookie", $"SESSDATA={session}");
@@ -34,9 +34,20 @@ internal sealed class BiliClient : IDisposable {
 	}
 
 	public async Task CheckLoginAsync(CancellationToken token) {
-		JsonElement data = await FetchAsync("x/web-interface/nav", token);
-		if (!data.GetProperty("isLogin").GetBoolean())
-			throw new InvalidDataException("登录已过期，请在程序设置中更新 SESSDATA。");
+		for (int attempt = 1; attempt <= 2; attempt++) {
+			try {
+				JsonElement data = await FetchAsync("x/web-interface/nav", token);
+				if (!data.GetProperty("isLogin").GetBoolean())
+					throw new InvalidDataException("登录已过期，请在程序设置中重新登录。");
+				return;
+			}
+			catch (OperationCanceledException) when (!token.IsCancellationRequested) {
+				if (attempt == 2)
+					throw new TimeoutException("B站登录校验连续两次超时，尚未开始下载。请核对程序设置中的代理协议、地址和端口。");
+				Verbose("登录校验 30 秒超时，即将按原网络设置重试一次。");
+				await Task.Delay(1000, token);
+			}
+		}
 	}
 
 	public async Task<List<FavoriteFolder>> FoldersAsync(long uid, CancellationToken token) {

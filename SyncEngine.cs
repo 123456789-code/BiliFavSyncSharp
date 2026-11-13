@@ -29,8 +29,8 @@ internal sealed class SyncEngine(AppSettings settings, string session, Action<st
 			}
 		}
 		else {
-			verbose(settings.UseSystemProxy ? "网络模式 · 使用系统默认代理规则" : "网络模式 · 直连");
-			using var api = new BiliClient(settings.UserId, session, verbose, settings.UseSystemProxy);
+			verbose(!settings.UseSystemProxy ? "网络模式 · 直连" : string.IsNullOrWhiteSpace(settings.ProxyEndpoint) ? "网络模式 · 使用系统默认代理规则" : "网络模式 · 使用指定代理");
+			using var api = new BiliClient(settings.UserId, session, verbose, settings.UseSystemProxy, settings.ProxyEndpoint);
 			await api.CheckLoginAsync(token);
 			List<FavoriteFolder> folders = await api.FoldersAsync(settings.UserId, token);
 			verbose($"已取得 {folders.Count} 个收藏夹");
@@ -87,7 +87,7 @@ internal sealed class SyncEngine(AppSettings settings, string session, Action<st
 		string pool = Path.Combine(root, ".pool");
 		if (incoming.Parts > previous) {
 			log($"下载 {bv} · {incoming.Title} · P{previous + 1}–P{incoming.Parts}");
-			await Downloader.RunAsync(session, pool, bv, previous, incoming.Parts, token, verbose, settings.UseSystemProxy, preview);
+			await Downloader.RunAsync(session, pool, bv, previous, incoming.Parts, token, verbose, settings.UseSystemProxy, settings.ProxyEndpoint, preview);
 		}
 		string description = Path.Combine(pool, bv, "desc.txt");
 		if (!File.Exists(description))

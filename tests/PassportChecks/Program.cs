@@ -9,12 +9,16 @@ internal static class Program {
 		private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> Steps = new();
 		public int Remaining => Steps.Count;
 
+		public void Timeout() {
+			Steps.Enqueue(_ => throw new TaskCanceledException("synthetic timeout"));
+		}
+
 		public void Expect(string prefix, string body, string? session = null, string? form = null, bool issue_cookies = false) {
 			Steps.Enqueue(request => {
 				Check(request.RequestUri!.IsAbsoluteUri && request.RequestUri.AbsoluteUri.StartsWith(prefix, StringComparison.Ordinal));
 				Check(request.Method == (form is null ? HttpMethod.Get : HttpMethod.Post));
 				string cookies = request.Headers.TryGetValues("Cookie", out IEnumerable<string>? header) ? header.Single() : "";
-				Check(session is null ? cookies.Length == 0 : cookies.Contains($"SESSDATA={session};"));
+				Check(session is null ? cookies.Length == 0 : cookies.Split(';', StringSplitOptions.TrimEntries).Contains($"SESSDATA={session}"));
 				if (form is not null)
 					Check(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult().Contains(form, StringComparison.Ordinal));
 				var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8) };
@@ -38,6 +42,26 @@ internal static class Program {
 	}
 
 	private static async Task Main() {
+		using var nav = new Script();
+		using var videos = new BiliClient(123, "fixture", _ => { }, true, "http://127.0.0.1:8888", nav);
+		nav.Timeout();
+		nav.Expect("https://api.bilibili.com/x/web-interface/nav", """{"code":0,"data":{"isLogin":true}}""", "fixture");
+		await videos.CheckLoginAsync(default);
+		Check(nav.Remaining == 0);
+		nav.Timeout();
+		nav.Timeout();
+		try {
+			await videos.CheckLoginAsync(default);
+			throw new InvalidOperationException("连续超时未中止");
+		}
+		catch (TimeoutException) { Check(nav.Remaining == 0); }
+		Check(ProxyAddress.Resolve(true, "socks5://127.0.0.1:1080")?.Address?.Scheme == "socks5");
+		Check(ProxyAddress.Resolve(true, "") is null);
+		try {
+			ProxyAddress.Resolve(true, "http://user:password@localhost:80");
+			throw new InvalidOperationException("接受了带凭据的地址");
+		}
+		catch (ArgumentException) { }
 		const string API = "https://passport.bilibili.com/x/passport-login/web/";
 		using var script = new Script();
 		using var client = new PassportClient(script);

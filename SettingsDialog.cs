@@ -5,7 +5,8 @@ internal sealed class SettingsDialog : Form {
 	private readonly TextBox Session = new() { UseSystemPasswordChar = true };
 	private readonly TextBox Root = new();
 
-	private readonly CheckBox SystemProxy = new() { Text = "使用系统代理（登录、同步和下载）", AutoSize = true };
+	private readonly CheckBox SystemProxy = new() { Text = "使用代理（登录、同步和下载）", AutoSize = true };
+	private readonly TextBox Endpoint = new() { Width = 390, PlaceholderText = "代理地址（留空跟随系统），例如 http://127.0.0.1:端口", AccessibleName = "代理地址" };
 	private readonly CheckBox Startup = new() { Text = "登录 Windows 后自动启动", AutoSize = true };
 	private readonly CheckBox Elevated = new() { Text = "以管理员权限启动（下次启动生效）", AutoSize = true };
 	private readonly CheckBox Tray = new() { Text = "关闭窗口后在托盘继续运行", AutoSize = true };
@@ -47,6 +48,9 @@ internal sealed class SettingsDialog : Form {
 				Root.Text = picker.SelectedPath;
 		}), 2, 2);
 		SystemProxy.Checked = settings.UseSystemProxy;
+		Endpoint.Text = settings.ProxyEndpoint;
+		Endpoint.Enabled = SystemProxy.Checked;
+		SystemProxy.CheckedChanged += (_, _) => Endpoint.Enabled = SystemProxy.Checked;
 		Startup.Checked = settings.StartAtLogon;
 		Elevated.Checked = settings.RunAsAdministrator;
 		Tray.Checked = settings.StayInTray;
@@ -58,7 +62,9 @@ internal sealed class SettingsDialog : Form {
 			Account = null;
 		};
 		grid.Controls.Add(UiTheme.Button("扫码登录", (_, _) => {
-			using var dialog = new QrLoginDialog(SystemProxy.Checked);
+			if (!ValidateProxy())
+				return;
+			using var dialog = new QrLoginDialog(SystemProxy.Checked, Endpoint.Text.Trim());
 			if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Account is not LoginSession login)
 				return;
 			bool use_login_uid = Uid.Text.Trim().Length == 0 || Uid.Text.Trim() == Account?.Uid.ToString();
@@ -69,7 +75,7 @@ internal sealed class SettingsDialog : Form {
 				Uid.Text = login.Uid.ToString();
 		}), 2, 1);
 		var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White, Padding = new Padding(12) };
-		options.Controls.AddRange([Remember, SystemProxy, Startup, Elevated, Tray, Reminder]);
+		options.Controls.AddRange([Remember, SystemProxy, Endpoint, Startup, Elevated, Tray, Reminder]);
 		var maintenance = new FlowLayoutPanel { AutoSize = true };
 		maintenance.Controls.Add(UiTheme.Button("核对自启状态", (_, _) => {
 			try { MessageBox.Show(this, StartupRegistration.Describe(), "Windows 自启状态"); }
@@ -103,7 +109,20 @@ internal sealed class SettingsDialog : Form {
 		grid.Controls.Add(input, 1, row);
 	}
 
+	private bool ValidateProxy() {
+		try {
+			_ = ProxyAddress.Resolve(SystemProxy.Checked, Endpoint.Text);
+			return true;
+		}
+		catch (ArgumentException exception) {
+			MessageBox.Show(this, exception.Message, "代理地址");
+			return false;
+		}
+	}
+
 	private async Task SaveAsync() {
+		if (!ValidateProxy())
+			return;
 		if (Root.Text.Trim().Length > 0 && !Path.IsPathFullyQualified(Root.Text.Trim())) {
 			MessageBox.Show(this, "请选择视频库的绝对路径。");
 			return;
@@ -140,6 +159,7 @@ internal sealed class SettingsDialog : Form {
 				AutomaticSync = Settings.AutomaticSync,
 				DetailedLogging = Settings.DetailedLogging,
 				UseSystemProxy = SystemProxy.Checked,
+				ProxyEndpoint = SystemProxy.Checked ? Endpoint.Text.Trim() : Settings.ProxyEndpoint,
 				ProtectedSession = preserve_login ? Settings.ProtectedSession : Remember.Checked && Account is null ? SessionProtection.Protect(Credential) : "",
 				ProtectedLogin = preserve_login ? Settings.ProtectedLogin : Remember.Checked && Account is not null ? SessionProtection.ProtectLogin(Account) : ""
 			};

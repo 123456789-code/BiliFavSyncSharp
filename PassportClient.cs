@@ -18,8 +18,8 @@ internal sealed class PassportClient : IDisposable {
 	private const string PUBLIC_KEY = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDLgd2OAkcGVtoE3ThUREbio0EgUc/prcajMKXvkCKFCWhJYJcLkcM2DKKcSeFpD/j6Boy538YXnR6VhcuUJOhH2x71nzPjfdTcqMz7djHum0qSZA0AyCBDABUqCrfNgCiJ00Ra7GmRj+YCK1NJEuewlb40JNrRuoEUXpabUzGB8QIDAQAB";
 	private readonly HttpClient Client;
 
-	public PassportClient(HttpMessageHandler? handler = null, bool use_system_proxy = true) {
-		Client = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = use_system_proxy }) { Timeout = TimeSpan.FromSeconds(15) };
+	public PassportClient(HttpMessageHandler? handler = null, bool use_system_proxy = true, string proxy_endpoint = "") {
+		Client = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = use_system_proxy, Proxy = ProxyAddress.Resolve(use_system_proxy, proxy_endpoint) }) { Timeout = TimeSpan.FromSeconds(15) };
 		Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 BiliFavSyncSharp/1.2");
 		Client.DefaultRequestHeaders.Referrer = new Uri("https://www.bilibili.com/");
 	}

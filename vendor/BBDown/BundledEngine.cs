@@ -8,9 +8,11 @@ namespace BBDown;
 public static class BundledEngine {
 	internal static Action<int, long, bool>? Progress { get; private set; }
 
-	public static void ConfigureNetwork(bool use_system_proxy) {
+	public static void ConfigureNetwork(bool use_system_proxy, IWebProxy? proxy = null) {
 		if (!use_system_proxy)
 			HttpClient.DefaultProxy = new WebProxy();
+		else if (proxy is not null)
+			HttpClient.DefaultProxy = proxy;
 	}
 
 	public static async Task DownloadAsync(string bv, string session, string pool, string ffmpeg, string pages, Action<int, long, bool> progress) {

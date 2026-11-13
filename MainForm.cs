@@ -360,11 +360,11 @@ internal sealed class MainForm : Form {
 			journal.Write(rebuild ? "开始重建硬链接" : "开始同步收藏夹");
 			if (!rebuild && Account is not null) {
 				journal.Detail("检查扫码登录会话及续期状态");
-				using var passport = new PassportClient(use_system_proxy: Settings.UseSystemProxy);
+				using var passport = new PassportClient(use_system_proxy: Settings.UseSystemProxy, proxy_endpoint: Settings.ProxyEndpoint);
 				LoginSession previous = Account;
 				await passport.MaintainAsync(Account, SaveLogin, cancellation.Token);
 				journal.Protect(Session, Account?.Csrf, Account?.RefreshToken, Account?.PendingConfirmation);
-				journal.Detail(previous.Session == Session ? "登录会话已就绪" : "会话已更新");
+				journal.Detail(previous.Session != Session ? "会话已更新" : previous.PendingConfirmation.Length == 0 && previous.CheckedUtc.Date == DateTime.UtcNow.Date ? "今天已检查续期，开始校验登录" : "续期检查完成，开始校验登录");
 			}
 			var engine = new SyncEngine(Settings, Session, journal.Write, journal.Detail, frame => {
 				ConsoleFrame? visible = frame is null ? null : frame with { Text = journal.Redact(frame.Text) };

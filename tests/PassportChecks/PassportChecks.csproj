@@ -6,6 +6,9 @@
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
 	<ItemGroup>
+		<Compile Include="../../BiliClient.cs" Link="BiliClient.cs" />
+		<Compile Include="../../Models.cs" Link="Models.cs" />
+		<Compile Include="../../ProxyAddress.cs" Link="ProxyAddress.cs" />
 		<Compile Include="../../PassportClient.cs" Link="PassportClient.cs" />
 	</ItemGroup>
 </Project>
