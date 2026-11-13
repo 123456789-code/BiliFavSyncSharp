@@ -7,6 +7,7 @@ internal sealed class SettingsDialog : Form {
 
 	private readonly CheckBox SystemProxy = new() { Text = "使用代理（登录、同步和下载）", AutoSize = true };
 	private readonly TextBox Endpoint = new() { Width = 390, PlaceholderText = "代理地址（留空跟随系统），例如 http://127.0.0.1:端口", AccessibleName = "代理地址" };
+	private readonly NumericUpDown Interval = new() { Minimum = 1, Maximum = AppSettings.MAX_INTERVAL_MINUTES, Width = 96, AccessibleName = "自动同步间隔（分钟）" };
 	private readonly CheckBox Startup = new() { Text = "登录 Windows 后自动启动", AutoSize = true };
 	private readonly CheckBox Elevated = new() { Text = "以管理员权限启动（下次启动生效）", AutoSize = true };
 	private readonly CheckBox Tray = new() { Text = "关闭窗口后在托盘继续运行", AutoSize = true };
@@ -75,7 +76,11 @@ internal sealed class SettingsDialog : Form {
 				Uid.Text = login.Uid.ToString();
 		}), 2, 1);
 		var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White, Padding = new Padding(12) };
-		options.Controls.AddRange([Remember, SystemProxy, Endpoint, Startup, Elevated, Tray, Reminder]);
+		Interval.Value = settings.SyncIntervalMinutes;
+		var schedule = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+		schedule.Controls.Add(new Label { Text = "自动同步间隔（分钟）", AutoSize = true, Anchor = AnchorStyles.Left });
+		schedule.Controls.Add(Interval);
+		options.Controls.AddRange([schedule, Remember, SystemProxy, Endpoint, Startup, Elevated, Tray, Reminder]);
 		var maintenance = new FlowLayoutPanel { AutoSize = true };
 		maintenance.Controls.Add(UiTheme.Button("核对自启状态", (_, _) => {
 			try { MessageBox.Show(this, StartupRegistration.Describe(), "Windows 自启状态"); }
@@ -157,6 +162,7 @@ internal sealed class SettingsDialog : Form {
 				StayInTray = Tray.Checked,
 				ShowReminder = Reminder.Checked,
 				AutomaticSync = Settings.AutomaticSync,
+				SyncIntervalMinutes = (int)Interval.Value,
 				DetailedLogging = Settings.DetailedLogging,
 				UseSystemProxy = SystemProxy.Checked,
 				ProxyEndpoint = SystemProxy.Checked ? Endpoint.Text.Trim() : Settings.ProxyEndpoint,

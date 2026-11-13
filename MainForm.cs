@@ -18,8 +18,10 @@ internal sealed class MainForm : Form {
 	private readonly Button RebuildButton;
 	private readonly Button StopButton;
 	private readonly Button SettingsButton;
-	private readonly CheckBox Hourly = new() { AutoSize = true, Text = "每小时同步", Anchor = AnchorStyles.Right };
-	private readonly System.Windows.Forms.Timer Timer = new() { Interval = 3600000 };
+	private readonly CheckBox Automatic = new() { AutoSize = true, Anchor = AnchorStyles.Right };
+	private readonly System.Windows.Forms.Timer Timer = new() { Interval = 1000 };
+	private readonly Label NextRun = new() { AutoSize = true, Anchor = AnchorStyles.Right, ForeColor = UiTheme.Muted };
+	private DateTimeOffset NextSync;
 	private readonly Label Summary = new() { AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = UiTheme.Muted };
 	private readonly ProgressBar DownloadBar = new() { Width = 160, Height = 18, Visible = false };
 	private readonly Label DownloadText = new() { AutoSize = false, AutoEllipsis = true, Width = 330, Height = 24 };
@@ -55,7 +57,7 @@ internal sealed class MainForm : Form {
 		var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(24, 14, 16, 8) };
 		SyncButton = UiTheme.Button("立即同步", async (_, _) => await RunAsync(false), true);
 		RebuildButton = UiTheme.Button("重建硬链接", async (_, _) => await RunAsync(true));
-		StopButton = UiTheme.Button("取消任务", (_, _) => { Hourly.Checked = false; Active?.Cancel(); });
+		StopButton = UiTheme.Button("取消任务", (_, _) => { Automatic.Checked = false; Active?.Cancel(); });
 		StopButton.Enabled = false;
 		DetailedLogging = Settings.DetailedLogging;
 		var verbose = new CheckBox { Text = "详细日志", AutoSize = true, Checked = DetailedLogging, Margin = new Padding(8, 10, 8, 0) };
@@ -75,11 +77,13 @@ internal sealed class MainForm : Form {
 		};
 		toolbar.Controls.AddRange([SyncButton, RebuildButton, StopButton, UiTheme.Button("打开日志", (_, _) => OpenLog()), verbose]);
 		layout.Controls.Add(toolbar, 0, 1);
-		var summary = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Padding = new Padding(24, 4, 24, 8) };
+		var summary = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Padding = new Padding(24, 4, 24, 8) };
 		summary.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 		summary.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 		summary.Controls.Add(Summary, 0, 0);
-		summary.Controls.Add(Hourly, 1, 0);
+		summary.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+		summary.Controls.Add(NextRun, 1, 0);
+		summary.Controls.Add(Automatic, 2, 0);
 		layout.Controls.Add(summary, 0, 2);
 		Grid.Dock = DockStyle.Fill;
 		Grid.Margin = new Padding(24, 0, 24, 0);
@@ -121,33 +125,34 @@ internal sealed class MainForm : Form {
 		TrayIcon.ContextMenuStrip.Items.Add("退出程序", null, (_, _) => { Exiting = true; Close(); });
 		TrayIcon.DoubleClick += (_, _) => ShowWindow();
 		TrayIcon.Visible = Settings.StayInTray;
-		Hourly.Checked = Settings.AutomaticSync;
-		Hourly.CheckedChanged += async (_, _) => {
+		UpdateIntervalLabel();
+		Automatic.Checked = Settings.AutomaticSync;
+		Automatic.CheckedChanged += async (_, _) => {
 			if (UpdatingSwitch)
 				return;
 			bool previous = Settings.AutomaticSync;
-			Settings.AutomaticSync = Hourly.Checked;
+			Settings.AutomaticSync = Automatic.Checked;
 			try { AppStore.Save(AppStore.SettingsPath, Settings); }
 			catch (Exception exception) {
 				UpdatingSwitch = true;
 				Settings.AutomaticSync = previous;
-				Hourly.Checked = previous;
+				Automatic.Checked = previous;
 				UpdatingSwitch = false;
 				MessageBox.Show(this, exception.Message, "定时设置保存失败");
 				return;
 			}
-			Timer.Stop();
-			if (Hourly.Checked && Active is null)
+			StopSchedule();
+			if (Automatic.Checked && Active is null)
 				await RunAsync(false);
 		};
 		Timer.Tick += async (_, _) => {
-			if (!Editing)
+			if (!Editing && Active is null && DateTimeOffset.Now >= NextSync)
 				await RunAsync(false);
 		};
 		Shown += async (_, _) => {
 			if (start_hidden && Settings.StayInTray)
 				Hide();
-			if (!Hourly.Checked)
+			if (!Automatic.Checked)
 				return;
 			if (Ready(false))
 				await RunAsync(false);
@@ -161,7 +166,7 @@ internal sealed class MainForm : Form {
 				return;
 			}
 			Exiting = true;
-			Timer.Stop();
+			StopSchedule();
 			if (Active is null)
 				return;
 			args.Cancel = true;
@@ -195,7 +200,22 @@ internal sealed class MainForm : Form {
 		base.WndProc(ref message);
 	}
 
-	private bool EditSettings() {
+	private void UpdateIntervalLabel() {
+		Automatic.Text = $"自动同步（每 {Settings.SyncIntervalMinutes} 分钟）";
+	}
+
+	private void StopSchedule() {
+		Timer.Stop();
+		NextRun.Text = "";
+	}
+
+	private void ScheduleNext() {
+		NextSync = DateTimeOffset.Now.AddMinutes(Settings.SyncIntervalMinutes);
+		NextRun.Text = $"下次同步 {NextSync:MM-dd HH:mm}";
+		Timer.Start();
+	}
+
+	private bool EditSettings(bool schedule_after_save = true) {
 		Editing = true;
 		using var dialog = new SettingsDialog(Settings, Session, Account);
 		try {
@@ -203,14 +223,18 @@ internal sealed class MainForm : Form {
 				return false;
 		}
 		finally { Editing = false; }
+		bool interval_changed = Settings.SyncIntervalMinutes != dialog.Settings.SyncIntervalMinutes;
 		Settings = dialog.Settings;
+		UpdateIntervalLabel();
 		Session = dialog.Credential;
 		Account = dialog.Account;
 		Reminder.Visible = Settings.ShowReminder;
 		TrayIcon.Visible = Settings.StayInTray;
 		RefreshLibrary();
-		if (Hourly.Checked && Ready(false) && !Timer.Enabled && Active is null)
-			Timer.Start();
+		if (!Ready(false))
+			StopSchedule();
+		else if (schedule_after_save && Automatic.Checked && Active is null && (interval_changed || !Timer.Enabled))
+			ScheduleNext();
 		return true;
 	}
 
@@ -307,9 +331,9 @@ internal sealed class MainForm : Form {
 	private async Task RunAsync(bool rebuild) {
 		if (Active is not null)
 			return;
-		Timer.Stop();
-		if (!Ready(rebuild) && (!EditSettings() || !Ready(rebuild))) {
-			Hourly.Checked = false;
+		StopSchedule();
+		if (!Ready(rebuild) && (!EditSettings(false) || !Ready(rebuild))) {
+			Automatic.Checked = false;
 			Status.Text = rebuild ? "请选择视频库目录" : "请在设置中填写 UID、SESSDATA 和视频库目录";
 			return;
 		}
@@ -393,10 +417,8 @@ internal sealed class MainForm : Form {
 			RefreshLibrary();
 			if (ClosePending)
 				Close();
-			else if (Hourly.Checked) {
-				Timer.Start();
-				Status.Text += $"    下次同步 {DateTime.Now.AddHours(1):HH:mm}";
-			}
+			else if (Automatic.Checked && Ready(false))
+				ScheduleNext();
 		}
 	}
 }

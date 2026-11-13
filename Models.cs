@@ -12,6 +12,12 @@ internal sealed class AppSettings {
 	public string ProxyEndpoint { get; set; } = "";
 	public bool UseSystemProxy { get; set; } = true;
 	public bool AutomaticSync { get; set; }
+	public const int MAX_INTERVAL_MINUTES = 7 * 24 * 60;
+	private int IntervalMinutes = 60;
+	public int SyncIntervalMinutes {
+		get => IntervalMinutes;
+		set => IntervalMinutes = Math.Clamp(value, 1, MAX_INTERVAL_MINUTES);
+	}
 	public string ProtectedLogin { get; set; } = "";
 	public string ProtectedSession { get; set; } = "";
 	public long UserId { get; set; }
