@@ -12,15 +12,28 @@ namespace BiliFavSyncSharp;
 internal sealed record LoginSession(string Session, string Csrf, long Uid, string RefreshToken, string PendingConfirmation = "", DateTime CheckedUtc = default);
 internal sealed record LoginCode(string Url, string Key);
 internal sealed record LoginPoll(int Code, LoginSession? Account);
+internal enum SessionMaintenance { Skipped, UpToDate, Refreshed }
 
 internal sealed class PassportClient : IDisposable {
 	private const string PASSPORT = "https://passport.bilibili.com/x/passport-login/web/";
 	private const string PUBLIC_KEY = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDLgd2OAkcGVtoE3ThUREbio0EgUc/prcajMKXvkCKFCWhJYJcLkcM2DKKcSeFpD/j6Boy538YXnR6VhcuUJOhH2x71nzPjfdTcqMz7djHum0qSZA0AyCBDABUqCrfNgCiJ00Ra7GmRj+YCK1NJEuewlb40JNrRuoEUXpabUzGB8QIDAQAB";
+	internal const string USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+	internal static readonly TimeSpan CheckInterval = TimeSpan.FromHours(1);
 	private readonly HttpClient Client;
 
+	internal static HttpClientHandler CreateHandler(bool use_system_proxy, string proxy_endpoint) {
+		return new HttpClientHandler {
+			AllowAutoRedirect = false,
+			AutomaticDecompression = DecompressionMethods.All,
+			UseCookies = false,
+			UseProxy = use_system_proxy,
+			Proxy = ProxyAddress.Resolve(use_system_proxy, proxy_endpoint)
+		};
+	}
+
 	public PassportClient(HttpMessageHandler? handler = null, bool use_system_proxy = true, string proxy_endpoint = "") {
-		Client = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = use_system_proxy, Proxy = ProxyAddress.Resolve(use_system_proxy, proxy_endpoint) }) { Timeout = TimeSpan.FromSeconds(15) };
-		Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 BiliFavSyncSharp/1.2");
+		Client = new HttpClient(handler ?? CreateHandler(use_system_proxy, proxy_endpoint)) { Timeout = TimeSpan.FromSeconds(15) };
+		Client.DefaultRequestHeaders.UserAgent.ParseAdd(USER_AGENT);
 		Client.DefaultRequestHeaders.Referrer = new Uri("https://www.bilibili.com/");
 	}
 
@@ -63,7 +76,7 @@ internal sealed class PassportClient : IDisposable {
 		return !string.IsNullOrWhiteSpace(value) ? value : throw new InvalidDataException("B站返回的登录信息不完整。");
 	}
 
-	private static LoginSession ReadAccount(HttpResponseMessage response, JsonElement data) {
+	private static LoginSession ReadAccount(HttpResponseMessage response, JsonElement data, long? expected_uid = null) {
 		var origin = new Uri(PASSPORT);
 		var jar = new CookieContainer();
 		if (response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? headers)) {
@@ -73,8 +86,18 @@ internal sealed class PassportClient : IDisposable {
 		CookieCollection cookies = jar.GetCookies(origin);
 		string? session = cookies["SESSDATA"]?.Value;
 		string? csrf = cookies["bili_jct"]?.Value;
-		if (string.IsNullOrWhiteSpace(session) || string.IsNullOrWhiteSpace(csrf) || !long.TryParse(cookies["DedeUserID"]?.Value, out long uid) || uid <= 0)
+		string? uid_value = cookies["DedeUserID"]?.Value;
+		long uid;
+		if (string.IsNullOrWhiteSpace(uid_value)) {
+			uid = expected_uid ?? 0;
+		}
+		else if (!long.TryParse(uid_value, out uid) || uid <= 0) {
+			uid = 0;
+		}
+		if (string.IsNullOrWhiteSpace(session) || string.IsNullOrWhiteSpace(csrf) || uid <= 0)
 			throw new InvalidDataException("登录响应缺少完整 Cookie，请重试扫码。");
+		if (expected_uid is long expected && uid != expected)
+			throw new InvalidDataException("续期返回了不同的用户。");
 		return new LoginSession(session, csrf, uid, Required(data, "refresh_token"));
 	}
 
@@ -85,15 +108,15 @@ internal sealed class PassportClient : IDisposable {
 		return new LoginPoll(code, code == 0 ? ReadAccount(response, data) : null);
 	}
 
-	public async Task MaintainAsync(LoginSession account, Action<LoginSession> save, CancellationToken token) {
+	public async Task<SessionMaintenance> MaintainAsync(LoginSession account, Action<LoginSession> save, CancellationToken token) {
 		if (account.PendingConfirmation.Length == 0) {
-			if (account.CheckedUtc.Date == DateTime.UtcNow.Date)
-				return;
-			using HttpResponseMessage info = await SendAsync($"{PASSPORT}cookie/info", account, null, token);
+			if (account.CheckedUtc != default && DateTime.UtcNow - account.CheckedUtc < CheckInterval)
+				return SessionMaintenance.Skipped;
+			using HttpResponseMessage info = await SendAsync($"{PASSPORT}cookie/info?csrf={Uri.EscapeDataString(account.Csrf)}", account, null, token);
 			JsonElement data = await DataAsync(info, token);
 			if (!data.GetProperty("refresh").GetBoolean()) {
 				save(account with { CheckedUtc = DateTime.UtcNow });
-				return;
+				return SessionMaintenance.UpToDate;
 			}
 			using RSA rsa = RSA.Create();
 			rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(PUBLIC_KEY), out _);
@@ -101,7 +124,7 @@ internal sealed class PassportClient : IDisposable {
 			string path = Convert.ToHexStringLower(rsa.Encrypt(Encoding.UTF8.GetBytes($"refresh_{timestamp}"), RSAEncryptionPadding.OaepSHA256));
 			using HttpResponseMessage page = await SendAsync($"https://www.bilibili.com/correspond/1/{path}", account, null, token);
 			string html = await page.Content.ReadAsStringAsync(token);
-			Match match = Regex.Match(html, """<div\s+id=["']1-name["']\s*>\s*([a-zA-Z0-9_-]+)\s*</div>""", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+			Match match = Regex.Match(html, """<div\b[^>]*\bid=["']1-name["'][^>]*>\s*([^<\s]+)\s*</div>""", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
 			if (!match.Success)
 				throw new InvalidDataException("无法取得 B站续期确认信息。");
 			using HttpResponseMessage refresh = await SendAsync($"{PASSPORT}cookie/refresh", account, new() {
@@ -110,9 +133,7 @@ internal sealed class PassportClient : IDisposable {
 				["source"] = "main_web",
 				["refresh_token"] = account.RefreshToken
 			}, token);
-			LoginSession next = ReadAccount(refresh, await DataAsync(refresh, token));
-			if (next.Uid != account.Uid)
-				throw new InvalidDataException("续期返回了不同的用户。");
+			LoginSession next = ReadAccount(refresh, await DataAsync(refresh, token), account.Uid);
 			account = next with { PendingConfirmation = account.RefreshToken };
 			save(account);
 		}
@@ -122,9 +143,9 @@ internal sealed class PassportClient : IDisposable {
 			["refresh_token"] = account.PendingConfirmation
 		}, token);
 		JsonElement reply = await confirm.Content.ReadFromJsonAsync<JsonElement>(token);
-		if (reply.GetProperty("code").GetInt32() == -400) {
+		if (reply.GetProperty("code").GetInt32() is -400 or 86095) {
 			// 确认可能已送达，而上一轮未能保存确认结果。先独立核对新会话。
-			using HttpResponseMessage info = await SendAsync($"{PASSPORT}cookie/info", account, null, token);
+			using HttpResponseMessage info = await SendAsync($"{PASSPORT}cookie/info?csrf={Uri.EscapeDataString(account.Csrf)}", account, null, token);
 			JsonElement status = await DataAsync(info, token);
 			if (status.GetProperty("refresh").GetBoolean())
 				throw new InvalidDataException("登录续期确认失败，请在设置中重新扫码。");
@@ -133,6 +154,7 @@ internal sealed class PassportClient : IDisposable {
 			_ = Data(reply);
 		}
 		save(account with { PendingConfirmation = "", CheckedUtc = DateTime.UtcNow });
+		return SessionMaintenance.Refreshed;
 	}
 
 	public void Dispose() {

@@ -13,6 +13,8 @@ internal sealed class SettingsDialog : Form {
 	private readonly CheckBox Tray = new() { Text = "关闭窗口后在托盘继续运行", AutoSize = true };
 	private readonly CheckBox Reminder = new() { Text = "显示主窗口使用提醒", AutoSize = true };
 	private readonly CheckBox Remember = new() { Text = "记住登录状态（当前 Windows 用户加密）", AutoSize = true };
+	private readonly Label LoginMode = new() { AutoSize = true, ForeColor = UiTheme.Muted, Margin = new Padding(3, 2, 3, 6) };
+	private bool UpdatingSession;
 	private bool CredentialEdited;
 	private bool RememberChosen;
 	private bool RepairRequested;
@@ -59,8 +61,11 @@ internal sealed class SettingsDialog : Form {
 		Remember.Checked = settings.ProtectedSession.Length > 0 || settings.ProtectedLogin.Length > 0;
 		Remember.Click += (_, _) => RememberChosen = true;
 		Session.TextChanged += (_, _) => {
+			if (UpdatingSession)
+				return;
 			CredentialEdited = true;
 			Account = null;
+			UpdateLoginMode();
 		};
 		grid.Controls.Add(UiTheme.Button("扫码登录", (_, _) => {
 			if (!ValidateProxy())
@@ -70,17 +75,21 @@ internal sealed class SettingsDialog : Form {
 				return;
 			bool use_login_uid = Uid.Text.Trim().Length == 0 || Uid.Text.Trim() == Account?.Uid.ToString();
 			CredentialEdited = true;
-			Session.Text = login.Session;
 			Account = login;
+			UpdatingSession = true;
+			try { Session.Text = login.Session; }
+			finally { UpdatingSession = false; }
 			if (use_login_uid)
 				Uid.Text = login.Uid.ToString();
+			UpdateLoginMode();
 		}), 2, 1);
+		UpdateLoginMode();
 		var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White, Padding = new Padding(12) };
 		Interval.Value = settings.SyncIntervalMinutes;
 		var schedule = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
 		schedule.Controls.Add(new Label { Text = "自动同步间隔（分钟）", AutoSize = true, Anchor = AnchorStyles.Left });
 		schedule.Controls.Add(Interval);
-		options.Controls.AddRange([schedule, Remember, SystemProxy, Endpoint, Startup, Elevated, Tray, Reminder]);
+		options.Controls.AddRange([LoginMode, schedule, Remember, SystemProxy, Endpoint, Startup, Elevated, Tray, Reminder]);
 		var maintenance = new FlowLayoutPanel { AutoSize = true };
 		maintenance.Controls.Add(UiTheme.Button("核对自启状态", (_, _) => {
 			try { MessageBox.Show(this, StartupRegistration.Describe(), "Windows 自启状态"); }
@@ -105,6 +114,14 @@ internal sealed class SettingsDialog : Form {
 		AcceptButton = save;
 		CancelButton = cancel;
 		FormClosing += (_, args) => args.Cancel = Saving;
+	}
+
+	private void UpdateLoginMode() {
+		LoginMode.Text = Account is not null
+			? "登录方式：扫码登录（支持自动续期）"
+			: Credential.Length > 0
+				? "登录方式：手动 SESSDATA（不支持自动续期）"
+				: "登录方式：未登录";
 	}
 
 	private static void AddField(TableLayoutPanel grid, int row, string caption, TextBox input) {
@@ -133,7 +150,8 @@ internal sealed class SettingsDialog : Form {
 			return;
 		}
 		long uid = 0;
-		if (Uid.Text.Length > 0 && (!long.TryParse(Uid.Text.Trim(), out uid) || uid <= 0)) {
+		string uid_text = Uid.Text.Trim();
+		if (uid_text.Length > 0 && (!long.TryParse(uid_text, out uid) || uid <= 0)) {
 			MessageBox.Show(this, "UID 应为正整数。");
 			return;
 		}

@@ -1,4 +1,6 @@
-﻿using System.Net;
+﻿using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using BiliFavSyncSharp;
 
@@ -13,7 +15,7 @@ internal static class Program {
 			Steps.Enqueue(_ => throw new TaskCanceledException("synthetic timeout"));
 		}
 
-		public void Expect(string prefix, string body, string? session = null, string? form = null, bool issue_cookies = false) {
+		public void Expect(string prefix, string body, string? session = null, string? form = null, bool issue_cookies = false, bool include_uid = true) {
 			Steps.Enqueue(request => {
 				Check(request.RequestUri!.IsAbsoluteUri && request.RequestUri.AbsoluteUri.StartsWith(prefix, StringComparison.Ordinal));
 				Check(request.Method == (form is null ? HttpMethod.Get : HttpMethod.Post));
@@ -23,7 +25,10 @@ internal static class Program {
 					Check(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult().Contains(form, StringComparison.Ordinal));
 				var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8) };
 				if (issue_cookies) {
-					foreach (string cookie in new[] { "SESSDATA=next", "bili_jct=csrf2", "DedeUserID=123" })
+					IEnumerable<string> issued = include_uid
+						? ["SESSDATA=next", "bili_jct=csrf2", "DedeUserID=123"]
+						: ["SESSDATA=next", "bili_jct=csrf2"];
+					foreach (string cookie in issued)
 						response.Headers.TryAddWithoutValidation("Set-Cookie", $"{cookie}; Path=/; Domain=.bilibili.com; Secure");
 				}
 				return response;
@@ -41,7 +46,35 @@ internal static class Program {
 			throw new InvalidOperationException("认证流程与预期不符。");
 	}
 
+	private static async Task CheckGzipDecompressionAsync() {
+		using var handler = PassportClient.CreateHandler(false, "");
+		Check(handler.AutomaticDecompression == DecompressionMethods.All);
+		using var server = new TcpListener(IPAddress.Loopback, 0);
+		server.Start();
+		int port = ((IPEndPoint)server.LocalEndpoint).Port;
+		byte[] compressed;
+		using (var buffer = new MemoryStream()) {
+			using (var gzip = new GZipStream(buffer, CompressionLevel.Fastest, leaveOpen: true))
+				gzip.Write("""<html><body><div id="1-name">gzip-challenge</div></body></html>"""u8);
+			compressed = buffer.ToArray();
+		}
+		Task serve = Task.Run(async () => {
+			using TcpClient socket = await server.AcceptTcpClientAsync();
+			using NetworkStream stream = socket.GetStream();
+			using var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, true);
+			while (await reader.ReadLineAsync() is { Length: > 0 }) { }
+			byte[] headers = Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Encoding: gzip\r\nContent-Length: {compressed.Length}\r\nConnection: close\r\n\r\n");
+			await stream.WriteAsync(headers);
+			await stream.WriteAsync(compressed);
+		});
+		using var client = new HttpClient(handler, disposeHandler: false);
+		string html = await client.GetStringAsync($"http://127.0.0.1:{port}/correspond/1/test");
+		await serve;
+		Check(html.Contains("gzip-challenge", StringComparison.Ordinal));
+	}
+
 	private static async Task Main() {
+		await CheckGzipDecompressionAsync();
 		using var nav = new Script();
 		using var videos = new BiliClient(123, "fixture", _ => { }, true, "http://127.0.0.1:8888", nav);
 		nav.Timeout();
@@ -82,28 +115,28 @@ internal static class Program {
 		Check(login.Uid == 123 && login.Session == "next" && login.RefreshToken == "qr-token");
 
 		var old = new LoginSession("before", "csrf1", 123, "old-token");
-		script.Expect($"{API}cookie/info", """{"code":0,"data":{"refresh":false}}""", "before");
+		script.Expect($"{API}cookie/info?csrf=csrf1", """{"code":0,"data":{"refresh":false}}""", "before");
 		LoginSession current = old;
-		await client.MaintainAsync(old, updated => current = updated, default);
-		await client.MaintainAsync(current, _ => throw new InvalidOperationException("重复检查。"), default);
+		Check(await client.MaintainAsync(old, updated => current = updated, default) == SessionMaintenance.UpToDate);
+		Check(await client.MaintainAsync(current, _ => throw new InvalidOperationException("重复检查。"), default) == SessionMaintenance.Skipped);
 
-		script.Expect($"{API}cookie/info", """{"code":0,"data":{"refresh":true,"timestamp":1700000000000}}""", "before");
-		script.Expect("https://www.bilibili.com/correspond/1/", """<div id="1-name">challenge</div>""", "before");
-		script.Expect($"{API}cookie/refresh", """{"code":0,"data":{"refresh_token":"new-token"}}""", "before", "refresh_csrf=challenge", true);
+		script.Expect($"{API}cookie/info?csrf=csrf1", """{"code":0,"data":{"refresh":true,"timestamp":1700000000000}}""", "before");
+		script.Expect("https://www.bilibili.com/correspond/1/", """<div class="box" id="1-name">challenge</div>""", "before");
+		script.Expect($"{API}cookie/refresh", """{"code":0,"data":{"refresh_token":"new-token"}}""", "before", "refresh_csrf=challenge", issue_cookies: true, include_uid: false);
 		script.Expect($"{API}confirm/refresh", """{"code":-1}""", "next", "refresh_token=old-token");
 		try {
 			await client.MaintainAsync(old, updated => current = updated, default);
 			throw new InvalidOperationException("未检测到确认失败。");
 		}
 		catch (InvalidDataException) { }
-		Check(current.PendingConfirmation == "old-token" && current.RefreshToken == "new-token");
+		Check(current.PendingConfirmation == "old-token" && current.RefreshToken == "new-token" && current.Uid == 123);
 		script.Expect($"{API}confirm/refresh", """{"code":0}""", "next", "refresh_token=old-token");
-		await client.MaintainAsync(current, updated => current = updated, default);
+		Check(await client.MaintainAsync(current, updated => current = updated, default) == SessionMaintenance.Refreshed);
 		Check(current.PendingConfirmation.Length == 0 && current.Session == "next" && script.Remaining == 0);
 		script.Expect($"{API}confirm/refresh", """{"code":-400}""", "next", "refresh_token=old-token");
-		script.Expect($"{API}cookie/info", """{"code":0,"data":{"refresh":false}}""", "next");
-		await client.MaintainAsync(current with { PendingConfirmation = "old-token" }, updated => current = updated, default);
+		script.Expect($"{API}cookie/info?csrf=csrf2", """{"code":0,"data":{"refresh":false}}""", "next");
+		Check(await client.MaintainAsync(current with { PendingConfirmation = "old-token" }, updated => current = updated, default) == SessionMaintenance.Refreshed);
 		Check(current.PendingConfirmation.Length == 0 && script.Remaining == 0);
-		Console.WriteLine("PASS: QR states, cancellation, login, daily check, rotation and interrupted confirmation");
+		Console.WriteLine("PASS: gzip decompression, QR states, cancellation, login, cooldown check, rotation and interrupted confirmation");
 	}
 }

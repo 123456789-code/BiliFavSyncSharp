@@ -385,10 +385,13 @@ internal sealed class MainForm : Form {
 			if (!rebuild && Account is not null) {
 				journal.Detail("检查扫码登录会话及续期状态");
 				using var passport = new PassportClient(use_system_proxy: Settings.UseSystemProxy, proxy_endpoint: Settings.ProxyEndpoint);
-				LoginSession previous = Account;
-				await passport.MaintainAsync(Account, SaveLogin, cancellation.Token);
+				SessionMaintenance result = await passport.MaintainAsync(Account, SaveLogin, cancellation.Token);
 				journal.Protect(Session, Account?.Csrf, Account?.RefreshToken, Account?.PendingConfirmation);
-				journal.Detail(previous.Session != Session ? "会话已更新" : previous.PendingConfirmation.Length == 0 && previous.CheckedUtc.Date == DateTime.UtcNow.Date ? "今天已检查续期，开始校验登录" : "续期检查完成，开始校验登录");
+				journal.Detail(result switch {
+					SessionMaintenance.Refreshed => "登录会话已自动续期",
+					SessionMaintenance.Skipped => "近期已检查续期，开始校验登录",
+					_ => "续期检查完成，无需更新，开始校验登录"
+				});
 			}
 			var engine = new SyncEngine(Settings, Session, journal.Write, journal.Detail, frame => {
 				ConsoleFrame? visible = frame is null ? null : frame with { Text = journal.Redact(frame.Text) };

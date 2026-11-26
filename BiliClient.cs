@@ -1,4 +1,5 @@
-﻿using System.Net.Http;
+﻿using System.Net;
+using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -10,13 +11,19 @@ internal sealed class BiliClient : IDisposable {
 	private readonly Action<string> Verbose;
 
 	public BiliClient(long uid, string session, Action<string> verbose, bool use_system_proxy, string proxy_endpoint, HttpMessageHandler? handler = null) {
-		Client = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseProxy = use_system_proxy, Proxy = ProxyAddress.Resolve(use_system_proxy, proxy_endpoint) }) {
+		Client = new HttpClient(handler ?? new HttpClientHandler {
+			AllowAutoRedirect = false,
+			AutomaticDecompression = DecompressionMethods.All,
+			UseCookies = false,
+			UseProxy = use_system_proxy,
+			Proxy = ProxyAddress.Resolve(use_system_proxy, proxy_endpoint)
+		}) {
 			BaseAddress = new Uri("https://api.bilibili.com/"),
 			Timeout = TimeSpan.FromSeconds(30)
 		};
 		Verbose = verbose;
 		Client.DefaultRequestHeaders.Add("Cookie", $"SESSDATA={session}");
-		Client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) BiliFavSyncSharp/1.0");
+		Client.DefaultRequestHeaders.UserAgent.ParseAdd(PassportClient.USER_AGENT);
 		Client.DefaultRequestHeaders.Referrer = new Uri($"https://space.bilibili.com/{uid}/favlist");
 	}
 
@@ -24,13 +31,18 @@ internal sealed class BiliClient : IDisposable {
 		string route = endpoint.Split('?')[0];
 		Verbose($"请求 B站接口 · {route}");
 		long start = System.Diagnostics.Stopwatch.GetTimestamp();
-		using HttpResponseMessage http = await Client.GetAsync(endpoint, token);
-		Verbose($"{route} · HTTP {(int)http.StatusCode} · {System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds:F0} ms");
-		http.EnsureSuccessStatusCode();
-		JsonElement response = await http.Content.ReadFromJsonAsync<JsonElement>(token);
-		if (response.GetProperty("code").GetInt32() != 0)
-			throw new InvalidDataException($"B站 API {route} · 错误码 {response.GetProperty("code")}");
-		return response.GetProperty("data");
+		try {
+			using HttpResponseMessage http = await Client.GetAsync(endpoint, token);
+			Verbose($"{route} · HTTP {(int)http.StatusCode} · {System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds:F0} ms");
+			http.EnsureSuccessStatusCode();
+			JsonElement response = await http.Content.ReadFromJsonAsync<JsonElement>(token);
+			if (response.GetProperty("code").GetInt32() != 0)
+				throw new InvalidDataException($"B站 API {route} · 错误码 {response.GetProperty("code")}");
+			return response.GetProperty("data");
+		}
+		catch (OperationCanceledException) when (!token.IsCancellationRequested) {
+			throw new TimeoutException($"请求 B站接口 {route} 超时，请核对网络或代理设置。");
+		}
 	}
 
 	public async Task CheckLoginAsync(CancellationToken token) {
@@ -41,7 +53,7 @@ internal sealed class BiliClient : IDisposable {
 					throw new InvalidDataException("登录已过期，请在程序设置中重新登录。");
 				return;
 			}
-			catch (OperationCanceledException) when (!token.IsCancellationRequested) {
+			catch (TimeoutException) {
 				if (attempt == 2)
 					throw new TimeoutException("B站登录校验连续两次超时，尚未开始下载。请核对程序设置中的代理协议、地址和端口。");
 				Verbose("登录校验 30 秒超时，即将按原网络设置重试一次。");

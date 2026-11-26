@@ -38,15 +38,6 @@ internal static class Program {
 				StartupRegistration.Apply(bool.Parse(enabled), bool.Parse(elevated));
 				return 0;
 			}
-			if (args is ["--check-install"] or ["--check-uninstall"]) {
-				if (Mutex.TryOpenExisting(name, out Mutex? active)) {
-					active.Dispose();
-					throw new IOException("请从托盘或主窗口退出 B站收藏夹同步后重试。");
-				}
-				if (args[0] == "--check-uninstall" && StartupRegistration.IsRegisteredForCurrentExecutable())
-					throw new IOException("请先在程序设置中关闭登录自启，再退出程序并卸载。");
-				return 0;
-			}
 			int restart = Array.IndexOf(args, "--elevated-user");
 			if (restart >= 0 && (restart + 1 >= args.Length || args[restart + 1] != sid || !StartupRegistration.IsAdministrator()))
 				throw new IOException("请使用同一 Windows 账户授权启动。");

@@ -36,9 +36,7 @@ internal static class StartupRegistration {
 
 	public static string Describe() {
 		using var scope = new ComScope();
-		dynamic service = scope.Add(Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service") ?? throw new IOException("任务计划服务不可用。"))!);
-		service.Connect();
-		dynamic folder = scope.Add(service.GetFolder("\\"));
+		dynamic folder = ConnectRootFolder(scope);
 		dynamic? existing = FindTask(scope, folder);
 		if (existing is null)
 			return "未注册当前用户的自启任务。";
@@ -50,28 +48,15 @@ internal static class StartupRegistration {
 		return $"任务：{TaskName}\r\n启用：{((bool)existing.Enabled ? "是" : "否")}\r\n管理员：{(level == "HighestAvailable" ? "是" : "否")}\r\n路径：{command}\r\n路径匹配当前程序：{(command.Equals(Environment.ProcessPath, StringComparison.OrdinalIgnoreCase) ? "是" : "否")}";
 	}
 
-	public static bool IsRegisteredForCurrentExecutable() {
-		using var scope = new ComScope();
-		dynamic service = scope.Add(Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service") ?? throw new IOException("任务计划服务不可用。"))!);
+	private static dynamic ConnectRootFolder(ComScope scope) {
+		dynamic service = scope.Add(Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service") ?? throw new IOException("Windows 任务计划服务不可用。"))!);
 		service.Connect();
-		dynamic folder = scope.Add(service.GetFolder("\\"));
-		dynamic? existing = FindTask(scope, folder);
-		return existing is not null && ReferencesExecutable((string)existing.Xml, Environment.ProcessPath!);
-	}
-
-	internal static bool ReferencesExecutable(string xml, string executable) {
-		return XDocument.Parse(xml).Descendants(Schema + "Command")
-			.Any(command => command.Value.Equals(executable, StringComparison.OrdinalIgnoreCase));
+		return scope.Add(service.GetFolder("\\"));
 	}
 
 	private static object? FindTask(ComScope scope, dynamic folder) {
-		return ReadExistingTask(() => scope.Add(folder.GetTask(TaskName)));
-	}
-
-	internal static object? ReadExistingTask(Func<object> lookup) {
-		try { return lookup(); }
-		// CLR 会将相同的 HRESULT 映射成 FileNotFoundException，不能只捕获 COMException。
-		// 仅在 GetTask 查询边界将“任务不存在”视为正常；注册失败仍须向上报告。
+		try { return scope.Add(folder.GetTask(TaskName)); }
+		// CLR 会将 ERROR_FILE_NOT_FOUND 映射为 FileNotFoundException，不能只捕获 COMException。
 		catch (Exception exception) when (exception.HResult == unchecked((int)0x80070002)) { return null; }
 	}
 
@@ -79,10 +64,7 @@ internal static class StartupRegistration {
 		string stage = "连接 Windows 任务计划服务";
 		try {
 			using var scope = new ComScope();
-			dynamic service = scope.Add(Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service") ?? throw new IOException("Windows 任务计划服务不可用。"))!);
-			service.Connect();
-			stage = "打开任务计划根目录";
-			dynamic folder = scope.Add(service.GetFolder("\\"));
+			dynamic folder = ConnectRootFolder(scope);
 			stage = "查询当前用户自启任务";
 			dynamic? existing = FindTask(scope, folder);
 			if (existing is not null) {
